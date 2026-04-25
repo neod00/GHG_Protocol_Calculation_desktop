@@ -26,6 +26,7 @@ import {
 import { LICENSE_VERIFY_URL, UPDATE_METADATA_URL } from "./config";
 import { buildLicenseGate } from "./licenseGate";
 import { LicenseVerificationResult, verifyLicense } from "./licenseClient";
+import { DesktopResultsDisplay } from "./components/DesktopResultsDisplay";
 import {
   createProjectEnvelope,
   DesktopProjectData,
@@ -923,31 +924,24 @@ function App() {
           </div>
         </section>
 
-        <section className="results-panel">
-          <div className="results-header">
-            <div>
-              <p className="eyebrow">Calculation result</p>
-              <h2>배출량 총괄</h2>
-            </div>
-          </div>
-          <div className="metric-grid">
-            <article>
-              <span>Scope 1</span>
-              <strong>{formatKgCO2eAsTCO2e(results.scope1Total)}</strong>
-            </article>
-            <article>
-              <span>Scope 2 Location</span>
-              <strong>{formatKgCO2eAsTCO2e(results.scope2LocationTotal)}</strong>
-            </article>
-            <article>
-              <span>Scope 2 Market</span>
-              <strong>{formatKgCO2eAsTCO2e(results.scope2MarketTotal)}</strong>
-            </article>
-            <article>
-              <span>총배출량 Market 기준</span>
-              <strong>{formatKgCO2eAsTCO2e(results.totalEmissionsMarket)}</strong>
-            </article>
-          </div>
+        <section className="results-panel web-parity-panel">
+          <DesktopResultsDisplay
+            totalEmissionsMarket={results.totalEmissionsMarket}
+            totalEmissionsLocation={results.totalEmissionsLocation}
+            scope1Total={results.scope1Total}
+            scope2LocationTotal={results.scope2LocationTotal}
+            scope2MarketTotal={results.scope2MarketTotal}
+            facilityBreakdown={results.facilityBreakdown}
+            facilities={facilities}
+            boundaryApproach={boundaryApproach}
+            companyName={companyName}
+            reportingYear={reportingYear}
+            canGenerateReport={licenseGate.canGenerateReport}
+            onGenerateReport={() => {
+              const reportPanel = document.querySelector(".report-panel");
+              reportPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+          />
         </section>
 
         <section className={`calculator-panel ${licenseGate.canUseCoreFeatures ? "" : "locked-panel"}`}>

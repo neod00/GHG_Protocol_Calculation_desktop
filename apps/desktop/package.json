@@ -14,9 +14,12 @@
     "@ghg/protocol-guide": "0.1.0",
     "@ghg/report": "0.1.0",
     "@ghg/storage": "0.1.0",
+    "@tailwindcss/vite": "^4.2.4",
     "@tauri-apps/api": "^2.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "recharts": "^3.8.1",
+    "tailwindcss": "^4.2.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
