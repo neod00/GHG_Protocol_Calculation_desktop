@@ -1,5 +1,6 @@
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { invoke } from "@tauri-apps/api/core";
 import {
   BoundaryApproach,
   calculateScope12Inventory,
@@ -18,6 +19,7 @@ import {
   buildChapter9Checklist,
   buildReportTotals,
   createDraftChapter9Report,
+  renderChapter9ReportDocx,
   renderChapter9ReportHtml,
   summarizeFacilityResults
 } from "@ghg/report";
@@ -239,6 +241,9 @@ function App() {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [isExportingReport, setIsExportingReport] = useState(false);
+  const [exportedReportPath, setExportedReportPath] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const hydratedRef = useRef(false);
 
   useEffect(() => {
@@ -495,6 +500,26 @@ function App() {
 
   function updateReportDraft<K extends keyof DesktopReportDraft>(key: K, value: DesktopReportDraft[K]) {
     setReportDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleExportDocx() {
+    try {
+      setIsExportingReport(true);
+      setExportError(null);
+      const blob = await renderChapter9ReportDocx(reportChecklist.reportData);
+      const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+      const safeCompanyName = companyName.trim().replace(/[\\/:*?"<>|]/g, "_") || "GHG_Report";
+      const outputPath = await invoke<string>("save_generated_report", {
+        fileName: `${safeCompanyName}_${reportingYear}_ghg_report.docx`,
+        bytes
+      });
+
+      setExportedReportPath(outputPath);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Word 보고서 저장에 실패했습니다.");
+    } finally {
+      setIsExportingReport(false);
+    }
   }
 
   const licenseGate = useMemo(() => buildLicenseGate(licenseResult), [licenseResult]);
@@ -1097,9 +1122,16 @@ function App() {
               <h2>9장 기준 보고서 입력 및 HTML 미리보기</h2>
               <p className="project-meta">이번 단계에서는 보고서 입력값 수집과 HTML 미리보기까지 연결했습니다. 다음 단계가 Word 생성입니다.</p>
             </div>
+            <div className="button-row">
+              <button type="button" disabled={!licenseGate.canGenerateReport || isExportingReport} onClick={() => void handleExportDocx()}>
+                {isExportingReport ? "Word 생성 중" : "Word 초안 저장"}
+              </button>
+            </div>
           </div>
 
           {!licenseGate.canGenerateReport && <p className="lock-copy">라이선스 인증 후 보고서 생성 기능을 사용할 수 있습니다.</p>}
+          {exportedReportPath && <p className="project-meta">저장 완료: {exportedReportPath}</p>}
+          {exportError && <p className="error-copy">{exportError}</p>}
 
           <div className="report-layout">
             <div className="report-editor">

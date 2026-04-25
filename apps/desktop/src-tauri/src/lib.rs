@@ -63,6 +63,19 @@ fn open_database(app: &AppHandle) -> Result<Connection, String> {
     Ok(connection)
 }
 
+fn report_output_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
+    let downloads_dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().document_dir())
+        .map_err(|error| format!("failed to resolve report output directory: {error}"))?;
+
+    fs::create_dir_all(&downloads_dir)
+        .map_err(|error| format!("failed to create report output directory: {error}"))?;
+
+    Ok(downloads_dir.join(file_name))
+}
+
 #[tauri::command]
 fn save_project(app: AppHandle, project: ProjectEnvelope) -> Result<(), String> {
     let connection = open_database(&app)?;
@@ -176,6 +189,19 @@ fn load_last_project(app: AppHandle) -> Result<Option<ProjectEnvelope>, String> 
     load_project(app, project_id)
 }
 
+#[tauri::command]
+fn save_generated_report(app: AppHandle, file_name: String, bytes: Vec<u8>) -> Result<String, String> {
+    let sanitized_file_name = file_name.replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_");
+    let output_path = report_output_path(&app, &sanitized_file_name)?;
+
+    fs::write(&output_path, bytes).map_err(|error| format!("failed to write generated report: {error}"))?;
+
+    output_path
+        .to_str()
+        .map(|value| value.to_string())
+        .ok_or_else(|| "failed to convert report path to string".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -184,7 +210,8 @@ pub fn run() {
             save_project,
             load_project,
             list_projects,
-            load_last_project
+            load_last_project,
+            save_generated_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

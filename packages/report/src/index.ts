@@ -4,6 +4,19 @@ import type {
   EmissionSourceResult,
   OrganizationBoundary
 } from "@ghg/core";
+import {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
+  WidthType
+} from "docx";
 
 export type ReportOutputFormat = "html" | "pdf" | "docx";
 
@@ -623,4 +636,177 @@ export function renderChapter9ReportHtml(data: Chapter9ReportData): string {
     </article>
   </body>
 </html>`;
+}
+
+function paragraph(
+  text: string,
+  options?: { heading?: (typeof HeadingLevel)[keyof typeof HeadingLevel]; bold?: boolean }
+): Paragraph {
+  return new Paragraph({
+    heading: options?.heading,
+    spacing: { after: 160 },
+    children: [
+      new TextRun({
+        text,
+        bold: options?.bold
+      })
+    ]
+  });
+}
+
+function bulletParagraph(text: string): Paragraph {
+  return new Paragraph({
+    bullet: { level: 0 },
+    spacing: { after: 100 },
+    children: [new TextRun(text)]
+  });
+}
+
+function simpleTable(headers: string[], rows: string[][]): Table {
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: headers.map(
+          (header) =>
+            new TableCell({
+              shading: { fill: "F7F9FC" },
+              borders: {
+                top: { style: BorderStyle.SINGLE, size: 1, color: "D9E1EC" },
+                bottom: { style: BorderStyle.SINGLE, size: 1, color: "D9E1EC" },
+                left: { style: BorderStyle.SINGLE, size: 1, color: "D9E1EC" },
+                right: { style: BorderStyle.SINGLE, size: 1, color: "D9E1EC" }
+              },
+              children: [
+                new Paragraph({
+                  children: [new TextRun({ text: header, bold: true })]
+                })
+              ]
+            })
+        )
+      }),
+      ...rows.map(
+        (row) =>
+          new TableRow({
+            children: row.map(
+              (cell) =>
+                new TableCell({
+                  borders: {
+                    top: { style: BorderStyle.SINGLE, size: 1, color: "D9E1EC" },
+                    bottom: { style: BorderStyle.SINGLE, size: 1, color: "D9E1EC" },
+                    left: { style: BorderStyle.SINGLE, size: 1, color: "D9E1EC" },
+                    right: { style: BorderStyle.SINGLE, size: 1, color: "D9E1EC" }
+                  },
+                  children: [new Paragraph(cell)]
+                })
+            )
+          })
+      )
+    ]
+  });
+}
+
+export async function renderChapter9ReportDocx(data: Chapter9ReportData): Promise<Blob> {
+  const checklist = buildChapter9Checklist(data);
+  const requiredChecklist = checklist.filter((item) => item.required);
+  const optionalChecklist = checklist.filter((item) => !item.required);
+  const facilityRows =
+    data.facilitySummaries?.map((facility) => [
+      facility.facilityName,
+      formatTco2e(facility.scope1Tco2e),
+      formatTco2e(facility.scope2LocationTco2e),
+      formatTco2e(facility.scope2MarketTco2e)
+    ]) || [];
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: {},
+        children: [
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 200 },
+            children: [new TextRun({ text: "GHG Protocol Chapter 9 Report Draft", bold: true, color: "D87D2A" })]
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 280 },
+            children: [new TextRun({ text: `${data.boundary.companyName} 온실가스 배출량 보고서`, bold: true, size: 34 })]
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 360 },
+            children: [
+              new TextRun(`보고연도 ${data.boundary.reportingYear} · 보고기간 ${data.reportingPeriod} · ${data.boundary.consolidationApproach}`)
+            ]
+          }),
+
+          paragraph("배출량 요약", { heading: HeadingLevel.HEADING_1 }),
+          simpleTable(
+            ["항목", "배출량"],
+            [
+              ["Scope 1", formatTco2e(data.totals.scope1Tco2e)],
+              ["Scope 2 Location-based", formatTco2e(data.totals.scope2LocationTco2e)],
+              ["Scope 2 Market-based", formatTco2e(data.totals.scope2MarketTco2e)],
+              ["총배출량 Location-based", formatTco2e(data.totals.totalLocationTco2e)],
+              ["총배출량 Market-based", formatTco2e(data.totals.totalMarketTco2e)]
+            ]
+          ),
+
+          paragraph("필수 공시 항목 점검", { heading: HeadingLevel.HEADING_1 }),
+          ...requiredChecklist.flatMap((item) => [
+            paragraph(`${item.label} [${item.status}]`, { bold: true }),
+            bulletParagraph(item.guidance || "")
+          ]),
+
+          paragraph("기업 및 인벤토리 경계", { heading: HeadingLevel.HEADING_1 }),
+          paragraph(`조직 경계: ${data.inventoryBoundary.organizationalBoundarySummary}`),
+          paragraph(`운영 경계: ${data.inventoryBoundary.operationalBoundarySummary}`),
+          paragraph("제외된 배출원 및 활동", { bold: true }),
+          ...(data.inventoryBoundary.excludedActivities?.length
+            ? data.inventoryBoundary.excludedActivities.map((item) => bulletParagraph(item))
+            : [bulletParagraph("없음")]),
+
+          paragraph("산정 방법론 및 배출계수", { heading: HeadingLevel.HEADING_1 }),
+          paragraph(data.methodology.calculationMethodSummary),
+          paragraph("배출계수 출처", { bold: true }),
+          ...data.methodology.emissionFactorSources.map((item) => bulletParagraph(item)),
+
+          paragraph("기준연도 및 재산정 정책", { heading: HeadingLevel.HEADING_1 }),
+          paragraph(`기준연도: ${data.baseYearPolicy.baseYear || data.boundary.reportingYear}`),
+          paragraph(`기준연도 선정 사유: ${data.baseYearPolicy.baseYearSelectionReason || ""}`),
+          paragraph(`재산정 정책: ${data.baseYearPolicy.recalculationPolicy}`),
+          ...(data.baseYearPolicy.structuralChangePolicy
+            ? [paragraph(`구조 변경 정책: ${data.baseYearPolicy.structuralChangePolicy}`)]
+            : []),
+
+          paragraph("시설별 배출량", { heading: HeadingLevel.HEADING_1 }),
+          simpleTable(
+            ["시설", "Scope 1", "Scope 2 Location", "Scope 2 Market"],
+            facilityRows.length > 0 ? facilityRows : [["시설별 요약 데이터가 없습니다.", "", "", ""]]
+          ),
+
+          paragraph("검증 및 담당자", { heading: HeadingLevel.HEADING_1 }),
+          paragraph(`검증 상태: ${data.verification.status}`),
+          ...(data.verification.verifierName ? [paragraph(`검증기관/검토자: ${data.verification.verifierName}`)] : []),
+          ...(data.verification.verificationOpinion ? [paragraph(`검증 의견: ${data.verification.verificationOpinion}`)] : []),
+          paragraph(`담당 부서: ${data.contact.department || ""}`),
+          paragraph(`담당자: ${data.contact.name}`),
+          ...(data.contact.email ? [paragraph(`이메일: ${data.contact.email}`)] : []),
+          ...(data.contact.phone ? [paragraph(`연락처: ${data.contact.phone}`)] : []),
+
+          paragraph("선택 공시 항목", { heading: HeadingLevel.HEADING_1 }),
+          ...optionalChecklist.flatMap((item) => [
+            paragraph(`${item.label} [${item.status}]`, { bold: true }),
+            bulletParagraph(item.guidance || "")
+          ]),
+          ...((data.optionalDisclosures?.length || 0) > 0
+            ? data.optionalDisclosures!.flatMap((item) => [paragraph(item.title, { bold: true }), paragraph(item.description)])
+            : [bulletParagraph("입력된 선택 공시 항목이 없습니다.")])
+        ]
+      }
+    ]
+  });
+
+  return Packer.toBlob(doc);
 }

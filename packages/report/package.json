@@ -8,7 +8,14 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": { "typecheck": "tsc --noEmit" },
-  "dependencies": { "@ghg/core": "0.1.0" },
-  "devDependencies": { "typescript": "^5.0.0" }
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ghg/core": "0.1.0",
+    "docx": "^9.6.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
 }
