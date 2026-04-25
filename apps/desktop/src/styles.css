@@ -227,6 +227,42 @@ input:focus, select:focus {
   line-height: 1.55;
   margin-bottom: 0;
 }
+.project-panel {
+  background: white;
+  border: 1px solid #e1e6ef;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(23, 32, 51, 0.06);
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.project-actions {
+  display: grid;
+  gap: 10px;
+  min-width: 260px;
+}
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.project-grid label,
+.project-actions label {
+  display: grid;
+  gap: 6px;
+  color: #526176;
+  font-size: 13px;
+  font-weight: 800;
+}
+.project-meta {
+  color: #526176;
+  line-height: 1.55;
+  margin-bottom: 0;
+}
+.error-copy {
+  color: #a12f00;
+  margin-top: 8px;
+  margin-bottom: 0;
+}
 .results-panel, .calculator-panel {
   background: white;
   border: 1px solid #e1e6ef;
@@ -371,6 +407,6 @@ input:focus, select:focus {
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .license-panel, .privacy-grid, .service-panel, .feature-grid, .metric-grid, .grid { grid-template-columns: 1fr; }
+  .license-panel, .privacy-grid, .project-grid, .service-panel, .feature-grid, .metric-grid, .grid { grid-template-columns: 1fr; }
   .results-header { display: grid; }
 }

@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   calculateScope12Inventory,
@@ -15,6 +15,15 @@ import { chapter9GuideTopics } from "@ghg/protocol-guide";
 import { LICENSE_VERIFY_URL, UPDATE_METADATA_URL } from "./config";
 import { buildLicenseGate } from "./licenseGate";
 import { LicenseVerificationResult, verifyLicense } from "./licenseClient";
+import {
+  createProjectEnvelope,
+  DesktopProjectData,
+  DesktopProjectListItem,
+  listDesktopProjects,
+  loadDesktopProject,
+  loadLastDesktopProject,
+  saveDesktopProject
+} from "./projectStorage";
 import "./styles.css";
 
 const savedLicenseKeyStorageKey = "ghg-desktop-license-key";
@@ -46,7 +55,7 @@ const categoryLabels: Record<string, string> = {
   [EmissionCategory.PurchasedEnergy]: "Scope 2 - 구매 에너지"
 };
 
-const initialFacilities: Facility[] = [
+const defaultFacilities: Facility[] = [
   { id: "facility-headquarters", name: "본사", equityShare: 100 },
   { id: "facility-plant", name: "공장", equityShare: 100 }
 ];
@@ -67,6 +76,39 @@ function createSource(category: EmissionCategory, factors: Scope12FactorSet, fac
   };
 }
 
+function createDefaultProjectData(): DesktopProjectData {
+  return {
+    companyName: "샘플 회사",
+    reportingYear: new Date().getFullYear().toString(),
+    boundaryApproach: "operational",
+    facilities: defaultFacilities,
+    sources: [
+      {
+        id: "source-demo-electricity",
+        facilityId: "facility-headquarters",
+        description: "사무실 전력",
+        category: EmissionCategory.PurchasedEnergy,
+        fuelType: "Grid Electricity",
+        monthlyQuantities: [15000, 14500, 15200, 16000, 18000, 22000, 28000, 27000, 21000, 17000, 15500, 15000],
+        unit: "kWh"
+      },
+      {
+        id: "source-demo-mobile",
+        facilityId: "facility-headquarters",
+        description: "업무용 차량",
+        category: EmissionCategory.MobileCombustion,
+        fuelType: "Gasoline (Petrol)",
+        monthlyQuantities: [120, 130, 125, 140, 150, 160, 180, 175, 155, 145, 135, 125],
+        unit: "liters"
+      }
+    ]
+  };
+}
+
+function createProjectId(): string {
+  return `project-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function getStatusText(result: LicenseVerificationResult | null): string {
   if (!result) return "미인증";
   if (result.ok) return "활성";
@@ -82,32 +124,29 @@ function getAnnualQuantity(source: EmissionSource): number {
   return source.monthlyQuantities.reduce((sum, value) => sum + value, 0);
 }
 
+function formatTimestamp(value: string | null): string {
+  if (!value) return "아직 저장되지 않음";
+  return new Date(value).toLocaleString("ko-KR");
+}
+
 function App() {
   const [licenseKey, setLicenseKey] = useState("");
   const [licenseResult, setLicenseResult] = useState<LicenseVerificationResult | null>(null);
   const [isChecking, setIsChecking] = useState(false);
-  const [facilities] = useState<Facility[]>(initialFacilities);
+
+  const [projectId, setProjectId] = useState(createProjectId());
+  const [projectName, setProjectName] = useState("기본 프로젝트");
+  const [companyName, setCompanyName] = useState("샘플 회사");
+  const [reportingYear, setReportingYear] = useState(new Date().getFullYear().toString());
+  const [facilities, setFacilities] = useState<Facility[]>(defaultFacilities);
   const [boundaryApproach, setBoundaryApproach] = useState<"operational" | "financial" | "equity">("operational");
-  const [sources, setSources] = useState<EmissionSource[]>([
-    {
-      id: "source-demo-electricity",
-      facilityId: "facility-headquarters",
-      description: "사무실 전력",
-      category: EmissionCategory.PurchasedEnergy,
-      fuelType: "Grid Electricity",
-      monthlyQuantities: [15000, 14500, 15200, 16000, 18000, 22000, 28000, 27000, 21000, 17000, 15500, 15000],
-      unit: "kWh"
-    },
-    {
-      id: "source-demo-mobile",
-      facilityId: "facility-headquarters",
-      description: "업무용 차량",
-      category: EmissionCategory.MobileCombustion,
-      fuelType: "Gasoline (Petrol)",
-      monthlyQuantities: [120, 130, 125, 140, 150, 160, 180, 175, 155, 145, 135, 125],
-      unit: "liters"
-    }
-  ]);
+  const [sources, setSources] = useState<EmissionSource[]>(createDefaultProjectData().sources);
+  const [projectList, setProjectList] = useState<DesktopProjectListItem[]>([]);
+  const [isLoadingProject, setIsLoadingProject] = useState(true);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     const savedKey = localStorage.getItem(savedLicenseKeyStorageKey);
@@ -123,6 +162,115 @@ function App() {
     }
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateProject() {
+      try {
+        const [lastProject, projects] = await Promise.all([
+          loadLastDesktopProject(),
+          listDesktopProjects()
+        ]);
+
+        if (cancelled) return;
+
+        if (lastProject) {
+          setProjectId(lastProject.projectId);
+          setProjectName(lastProject.projectName);
+          setCompanyName(lastProject.data.companyName);
+          setReportingYear(lastProject.data.reportingYear);
+          setFacilities(lastProject.data.facilities);
+          setBoundaryApproach(lastProject.data.boundaryApproach);
+          setSources(lastProject.data.sources);
+          setLastSavedAt(lastProject.updatedAt);
+        }
+
+        setProjectList(projects);
+        hydratedRef.current = true;
+      } catch (error) {
+        if (cancelled) return;
+        setSaveState("error");
+        setSaveError(error instanceof Error ? error.message : "프로젝트를 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) setIsLoadingProject(false);
+      }
+    }
+
+    void hydrateProject();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function refreshProjectList() {
+    setProjectList(await listDesktopProjects());
+  }
+
+  async function persistProject() {
+    const payload = createProjectEnvelope({
+      projectId,
+      projectName,
+      data: {
+        companyName,
+        reportingYear,
+        boundaryApproach,
+        facilities,
+        sources
+      }
+    });
+
+    setSaveState("saving");
+    setSaveError(null);
+
+    try {
+      await saveDesktopProject(payload);
+      setSaveState("saved");
+      setLastSavedAt(payload.updatedAt);
+      await refreshProjectList();
+    } catch (error) {
+      setSaveState("error");
+      setSaveError(error instanceof Error ? error.message : "프로젝트 저장에 실패했습니다.");
+    }
+  }
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+
+    const timeout = window.setTimeout(() => {
+      void persistProject();
+    }, 500);
+
+    return () => window.clearTimeout(timeout);
+  }, [projectId, projectName, companyName, reportingYear, boundaryApproach, facilities, sources]);
+
+  async function loadProjectFromList(nextProjectId: string) {
+    setIsLoadingProject(true);
+    try {
+      const project = await loadDesktopProject(nextProjectId);
+
+      if (!project) {
+        setIsLoadingProject(false);
+        return;
+      }
+
+      setProjectId(project.projectId);
+      setProjectName(project.projectName);
+      setCompanyName(project.data.companyName);
+      setReportingYear(project.data.reportingYear);
+      setFacilities(project.data.facilities);
+      setBoundaryApproach(project.data.boundaryApproach);
+      setSources(project.data.sources);
+      setLastSavedAt(project.updatedAt);
+      setSaveState("saved");
+      setSaveError(null);
+    } catch (error) {
+      setSaveState("error");
+      setSaveError(error instanceof Error ? error.message : "프로젝트를 불러오지 못했습니다.");
+    } finally {
+      setIsLoadingProject(false);
+    }
+  }
+
   async function handleLicenseSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmedKey = licenseKey.trim();
@@ -135,6 +283,20 @@ function App() {
 
     localStorage.setItem(savedLicenseKeyStorageKey, trimmedKey);
     localStorage.setItem(savedLicenseResultStorageKey, JSON.stringify(result));
+  }
+
+  function resetProject() {
+    const data = createDefaultProjectData();
+    setProjectId(createProjectId());
+    setProjectName("새 프로젝트");
+    setCompanyName(data.companyName);
+    setReportingYear(data.reportingYear);
+    setFacilities(data.facilities);
+    setBoundaryApproach(data.boundaryApproach);
+    setSources(data.sources);
+    setLastSavedAt(null);
+    setSaveState("idle");
+    setSaveError(null);
   }
 
   function addSource(category: EmissionCategory) {
@@ -209,10 +371,64 @@ function App() {
             <p className="eyebrow">Local-first desktop app</p>
             <h1>GHG Protocol Scope 1/2 계산</h1>
           </div>
-          <button type="button" disabled={!licenseGate.canCreateProject}>
+          <button type="button" disabled={!licenseGate.canCreateProject} onClick={resetProject}>
             새 프로젝트
           </button>
         </header>
+
+        <section className="project-panel">
+          <div className="results-header">
+            <div>
+              <p className="eyebrow">Project</p>
+              <h2>로컬 프로젝트 저장</h2>
+              <p className="project-meta">
+                상태: {isLoadingProject ? "불러오는 중" : saveState === "saving" ? "저장 중" : saveState === "saved" ? "저장됨" : saveState === "error" ? "오류" : "대기"}
+                {" · "}최근 저장: {formatTimestamp(lastSavedAt)}
+              </p>
+              {saveError && <p className="error-copy">{saveError}</p>}
+            </div>
+            <div className="project-actions">
+              <label>
+                최근 프로젝트
+                <select disabled={projectList.length === 0 || isLoadingProject} value={projectId} onChange={(event) => void loadProjectFromList(event.target.value)}>
+                  <option value={projectId}>{projectName}</option>
+                  {projectList
+                    .filter((item) => item.projectId !== projectId)
+                    .map((item) => (
+                      <option key={item.projectId} value={item.projectId}>
+                        {item.projectName}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button type="button" className="ghost-button" onClick={() => void persistProject()} disabled={isLoadingProject}>
+                지금 저장
+              </button>
+            </div>
+          </div>
+          <div className="project-grid">
+            <label>
+              프로젝트명
+              <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+            </label>
+            <label>
+              회사명
+              <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
+            </label>
+            <label>
+              보고연도
+              <input value={reportingYear} onChange={(event) => setReportingYear(event.target.value)} />
+            </label>
+            <label>
+              조직 경계
+              <select value={boundaryApproach} onChange={(event) => setBoundaryApproach(event.target.value as typeof boundaryApproach)}>
+                <option value="operational">운영 통제</option>
+                <option value="financial">재무 통제</option>
+                <option value="equity">지분율</option>
+              </select>
+            </label>
+          </div>
+        </section>
 
         <section className="license-panel">
           <div>
@@ -248,18 +464,16 @@ function App() {
           <div>
             <p className="eyebrow">Data policy</p>
             <h2>배출 데이터는 로컬에만 저장</h2>
-            <p>
-              연료 사용량, 전력 사용량, 시설 정보, 배출원 정보, 계산 결과, 보고서 원문 데이터는 현재 앱에서 외부 서버로 전송하지 않습니다.
-            </p>
+            <p>연료 사용량, 전력 사용량, 시설 정보, 배출원 정보, 계산 결과는 데스크탑의 로컬 SQLite에 저장됩니다.</p>
           </div>
           <div className="privacy-grid">
             <article>
-              <h3>외부로 전송되지 않음</h3>
-              <p>연료사용량, 에너지사용량, 시설, 배출원, 계산결과, 보고서 데이터</p>
+              <h3>로컬 SQLite 저장</h3>
+              <p>프로젝트명, 회사명, 보고연도, 시설, 배출원, 월별 활동량, 계산용 설정값을 자동 저장합니다.</p>
             </article>
             <article>
               <h3>외부로 전송됨</h3>
-              <p>라이선스 키, 앱 버전, 기기 식별 해시, 업데이트 확인 요청</p>
+              <p>라이선스 확인용 `licenseKey`, `appVersion`, `deviceIdHash`와 업데이트 확인 요청만 전송됩니다.</p>
             </article>
             <article>
               <h3>라이선스 확인 API</h3>
@@ -291,14 +505,6 @@ function App() {
               <p className="eyebrow">Calculation result</p>
               <h2>배출량 총괄</h2>
             </div>
-            <label>
-              조직 경계
-              <select value={boundaryApproach} onChange={(event) => setBoundaryApproach(event.target.value as typeof boundaryApproach)}>
-                <option value="operational">운영 통제</option>
-                <option value="financial">재무 통제</option>
-                <option value="equity">지분율</option>
-              </select>
-            </label>
           </div>
           <div className="metric-grid">
             <article>
@@ -428,19 +634,6 @@ function App() {
               );
             })}
           </div>
-        </section>
-
-        <section className="service-panel">
-          <div>
-            <p className="eyebrow">Protocol guide</p>
-            <h2>보고서 작성 체크 포인트</h2>
-          </div>
-          <dl>
-            <dt>라이선스 확인</dt>
-            <dd>`licenseKey`, `appVersion`, `deviceIdHash`만 전송</dd>
-            <dt>업데이트 확인</dt>
-            <dd>버전 메타데이터만 조회, 배출 데이터는 미전송</dd>
-          </dl>
         </section>
 
         <section className="grid">
