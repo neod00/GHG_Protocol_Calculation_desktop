@@ -5,6 +5,7 @@ use tauri::{AppHandle, Manager};
 
 const DATABASE_FILE_NAME: &str = "ghg-desktop.sqlite3";
 const LAST_PROJECT_KEY: &str = "last_project_id";
+const PROJECT_BUNDLE_EXTENSION: &str = "ghgproj";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +23,14 @@ struct ProjectEnvelope {
 struct ProjectListItem {
     project_id: String,
     project_name: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectBundleFile {
+    file_name: String,
+    file_path: String,
     updated_at: String,
 }
 
@@ -74,6 +83,23 @@ fn report_output_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, Strin
         .map_err(|error| format!("failed to create report output directory: {error}"))?;
 
     Ok(downloads_dir.join(file_name))
+}
+
+fn downloads_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let downloads_dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().document_dir())
+        .map_err(|error| format!("failed to resolve downloads directory: {error}"))?;
+
+    fs::create_dir_all(&downloads_dir)
+        .map_err(|error| format!("failed to create downloads directory: {error}"))?;
+
+    Ok(downloads_dir)
+}
+
+fn sanitize_file_name(value: &str) -> String {
+    value.replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_")
 }
 
 #[tauri::command]
@@ -191,7 +217,7 @@ fn load_last_project(app: AppHandle) -> Result<Option<ProjectEnvelope>, String> 
 
 #[tauri::command]
 fn save_generated_report(app: AppHandle, file_name: String, bytes: Vec<u8>) -> Result<String, String> {
-    let sanitized_file_name = file_name.replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|'], "_");
+    let sanitized_file_name = sanitize_file_name(&file_name);
     let output_path = report_output_path(&app, &sanitized_file_name)?;
 
     fs::write(&output_path, bytes).map_err(|error| format!("failed to write generated report: {error}"))?;
@@ -200,6 +226,76 @@ fn save_generated_report(app: AppHandle, file_name: String, bytes: Vec<u8>) -> R
         .to_str()
         .map(|value| value.to_string())
         .ok_or_else(|| "failed to convert report path to string".to_string())
+}
+
+#[tauri::command]
+fn export_project_bundle(app: AppHandle, project: ProjectEnvelope) -> Result<String, String> {
+    let downloads_dir = downloads_dir(&app)?;
+    let payload_json =
+        serde_json::to_string_pretty(&project).map_err(|error| format!("failed to serialize project bundle: {error}"))?;
+
+    let safe_project_name = sanitize_file_name(&project.project_name);
+    let file_name = format!("{}_{}.{}", safe_project_name, project.updated_at[..10].replace('-', ""), PROJECT_BUNDLE_EXTENSION);
+    let output_path = downloads_dir.join(file_name);
+
+    fs::write(&output_path, payload_json).map_err(|error| format!("failed to write project bundle: {error}"))?;
+
+    output_path
+        .to_str()
+        .map(|value| value.to_string())
+        .ok_or_else(|| "failed to convert project bundle path to string".to_string())
+}
+
+#[tauri::command]
+fn list_project_bundle_files(app: AppHandle) -> Result<Vec<ProjectBundleFile>, String> {
+    let downloads_dir = downloads_dir(&app)?;
+    let mut files = Vec::new();
+
+    for entry in fs::read_dir(downloads_dir).map_err(|error| format!("failed to read downloads directory: {error}"))? {
+        let entry = entry.map_err(|error| format!("failed to read downloads entry: {error}"))?;
+        let path = entry.path();
+        let extension = path.extension().and_then(|value| value.to_str()).unwrap_or_default();
+
+        if extension != PROJECT_BUNDLE_EXTENSION {
+            continue;
+        }
+
+        let metadata = entry
+            .metadata()
+            .map_err(|error| format!("failed to read project bundle metadata: {error}"))?;
+        let modified = metadata
+            .modified()
+            .map_err(|error| format!("failed to read project bundle modified time: {error}"))?;
+        let updated_at: chrono::DateTime<chrono::Utc> = modified.into();
+
+        files.push(ProjectBundleFile {
+            file_name: path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_string(),
+            file_path: path.to_string_lossy().to_string(),
+            updated_at: updated_at.to_rfc3339(),
+        });
+    }
+
+    files.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(files)
+}
+
+#[tauri::command]
+fn import_project_bundle(app: AppHandle, file_name: String) -> Result<ProjectEnvelope, String> {
+    let downloads_dir = downloads_dir(&app)?;
+    let safe_file_name = sanitize_file_name(&file_name);
+    let input_path = downloads_dir.join(safe_file_name);
+
+    let payload_json =
+        fs::read_to_string(&input_path).map_err(|error| format!("failed to read project bundle: {error}"))?;
+    let project: ProjectEnvelope = serde_json::from_str(&payload_json)
+        .map_err(|error| format!("failed to deserialize project bundle: {error}"))?;
+
+    save_project(app, project.clone())?;
+    Ok(project)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -211,7 +307,10 @@ pub fn run() {
             load_project,
             list_projects,
             load_last_project,
-            save_generated_report
+            save_generated_report,
+            export_project_bundle,
+            list_project_bundle_files,
+            import_project_bundle
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

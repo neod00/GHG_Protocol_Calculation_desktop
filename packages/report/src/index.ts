@@ -331,6 +331,7 @@ export function renderChapter9ReportHtml(data: Chapter9ReportData): string {
   const checklist = buildChapter9Checklist(data);
   const requiredChecklist = checklist.filter((item) => item.required);
   const optionalChecklist = checklist.filter((item) => !item.required);
+  const missingRequiredChecklist = requiredChecklist.filter((item) => item.status !== "complete");
   const facilityRows = (data.facilitySummaries || [])
     .map(
       (facility) => `
@@ -339,6 +340,19 @@ export function renderChapter9ReportHtml(data: Chapter9ReportData): string {
           <td>${formatTco2e(facility.scope1Tco2e)}</td>
           <td>${formatTco2e(facility.scope2LocationTco2e)}</td>
           <td>${formatTco2e(facility.scope2MarketTco2e)}</td>
+        </tr>
+      `
+    )
+    .join("");
+  const sourceRows = data.sources
+    .map(
+      (source) => `
+        <tr>
+          <td>${escapeHtml(source.description)}</td>
+          <td>${escapeHtml(source.category)}</td>
+          <td>${escapeHtml(source.fuelType)}</td>
+          <td>${escapeHtml(source.unit)}</td>
+          <td>${formatTco2e(source.emissionsTCO2e)}</td>
         </tr>
       `
     )
@@ -469,6 +483,13 @@ export function renderChapter9ReportHtml(data: Chapter9ReportData): string {
       .status.complete { background: #e7f8ee; color: #165b33; }
       .status.partial { background: #eef4fb; color: #355a84; }
       .status.missing { background: #fff1e6; color: #9a4d00; }
+      .warning-box {
+        border: 1px solid #f2d1a9;
+        background: #fff1e6;
+        color: #6d3900;
+        border-radius: 8px;
+        padding: 16px;
+      }
       @media print {
         body { padding: 0; background: white; }
         .report { box-shadow: none; border: 0; }
@@ -509,6 +530,16 @@ export function renderChapter9ReportHtml(data: Chapter9ReportData): string {
 
       <section class="section">
         <h2>필수 공시 항목 점검</h2>
+        ${
+          missingRequiredChecklist.length > 0
+            ? `
+              <div class="warning-box" style="margin-bottom:14px;">
+                <strong>필수 항목 누락 경고</strong>
+                <ul>${renderList(missingRequiredChecklist.map((item) => item.label))}</ul>
+              </div>
+            `
+            : ""
+        }
         <div class="checklist-grid">
           ${requiredChecklist
             .map(
@@ -622,6 +653,24 @@ export function renderChapter9ReportHtml(data: Chapter9ReportData): string {
         <div class="note-grid" style="margin-top:14px;">
           ${optionalDisclosureSections || '<div class="note-card"><p>입력된 선택 공시 항목이 없습니다.</p></div>'}
         </div>
+      </section>
+
+      <section class="section">
+        <h2>부록 A. 배출원 상세</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>배출원명</th>
+              <th>카테고리</th>
+              <th>연료/에너지</th>
+              <th>단위</th>
+              <th>배출량</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sourceRows || '<tr><td colspan="5">배출원 데이터가 없습니다.</td></tr>'}
+          </tbody>
+        </table>
       </section>
     </article>
   </body>
@@ -753,6 +802,7 @@ export async function renderChapter9ReportDocx(data: Chapter9ReportData): Promis
   const checklist = buildChapter9Checklist(data);
   const requiredChecklist = checklist.filter((item) => item.required);
   const optionalChecklist = checklist.filter((item) => !item.required);
+  const missingRequiredChecklist = requiredChecklist.filter((item) => item.status !== "complete");
   const facilityRows =
     data.facilitySummaries?.map((facility) => [
       facility.facilityName,
@@ -760,6 +810,13 @@ export async function renderChapter9ReportDocx(data: Chapter9ReportData): Promis
       formatTco2e(facility.scope2LocationTco2e),
       formatTco2e(facility.scope2MarketTco2e)
     ]) || [];
+  const sourceRows = data.sources.map((source) => [
+    source.description,
+    source.category,
+    source.fuelType,
+    source.unit,
+    formatTco2e(source.emissionsTCO2e)
+  ]);
 
   const doc = new Document({
     styles: {
@@ -834,6 +891,22 @@ export async function renderChapter9ReportDocx(data: Chapter9ReportData): Promis
           ),
 
           ...sectionHeading("필수 공시 항목 점검", "Chapter 9 필수 항목 누락 여부를 빠르게 검토하기 위한 섹션"),
+          ...(missingRequiredChecklist.length > 0
+            ? [
+                new Paragraph({
+                  spacing: { after: 100 },
+                  shading: { fill: "FFF1E6" },
+                  border: {
+                    top: { style: BorderStyle.SINGLE, size: 6, color: "F2D1A9" },
+                    bottom: { style: BorderStyle.SINGLE, size: 6, color: "F2D1A9" },
+                    left: { style: BorderStyle.SINGLE, size: 6, color: "F2D1A9" },
+                    right: { style: BorderStyle.SINGLE, size: 6, color: "F2D1A9" }
+                  },
+                  children: [new TextRun({ text: "필수 항목 누락 경고", bold: true, color: "9A4D00", size: 22 })]
+                }),
+                ...missingRequiredChecklist.map((item) => bulletParagraph(item.label))
+              ]
+            : []),
           ...requiredChecklist.flatMap((item) => [
             new Paragraph({
               spacing: { after: 60 },
@@ -902,6 +975,12 @@ export async function renderChapter9ReportDocx(data: Chapter9ReportData): Promis
           ...((data.optionalDisclosures?.length || 0) > 0
             ? data.optionalDisclosures!.flatMap((item) => [paragraph(item.title, { bold: true }), bodyParagraph(item.description)])
             : [bulletParagraph("입력된 선택 공시 항목이 없습니다.")]),
+
+          ...sectionHeading("부록 A. 배출원 상세", "산정 근거 추적과 검증 대응을 위한 상세 목록"),
+          simpleTable(
+            ["배출원명", "카테고리", "연료/에너지", "단위", "배출량"],
+            sourceRows.length > 0 ? sourceRows : [["배출원 데이터가 없습니다.", "", "", "", ""]]
+          ),
 
           ...sectionHeading("작성 메모", "최종 제출 전 확인 권장 항목"),
           bulletParagraph("보고서 내 수치와 앱의 계산 결과가 일치하는지 최종 검토"),

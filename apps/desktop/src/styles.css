@@ -274,6 +274,30 @@ textarea:focus {
   line-height: 1.55;
   margin-bottom: 0;
 }
+.bundle-panel {
+  margin-top: 18px;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 16px;
+}
+.bundle-panel h3 {
+  margin-bottom: 8px;
+}
+.bundle-actions {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+}
+.bundle-actions label {
+  display: grid;
+  gap: 6px;
+  color: #526176;
+  font-size: 13px;
+  font-weight: 800;
+}
 .error-copy {
   color: #a12f00;
   margin-top: 8px;
@@ -602,7 +626,7 @@ textarea:focus {
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .license-panel, .privacy-grid, .project-grid, .service-panel, .feature-grid, .metric-grid, .mix-toggle-grid, .mix-detail-grid, .grid, .report-layout, .report-form-grid { grid-template-columns: 1fr; }
+  .license-panel, .privacy-grid, .project-grid, .service-panel, .feature-grid, .metric-grid, .mix-toggle-grid, .mix-detail-grid, .grid, .report-layout, .report-form-grid, .bundle-actions { grid-template-columns: 1fr; }
   .results-header { display: grid; }
   .detail-header { display: grid; }
 }

@@ -29,9 +29,13 @@ import { LicenseVerificationResult, verifyLicense } from "./licenseClient";
 import {
   createProjectEnvelope,
   DesktopProjectData,
+  DesktopProjectBundleFile,
   DesktopProjectListItem,
   DesktopReportDraft,
+  exportDesktopProjectBundle,
+  importDesktopProjectBundle,
   listDesktopProjects,
+  listDesktopProjectBundles,
   loadDesktopProject,
   loadLastDesktopProject,
   saveDesktopProject
@@ -237,10 +241,16 @@ function App() {
     createDefaultReportDraft(new Date().getFullYear().toString(), "샘플 회사")
   );
   const [projectList, setProjectList] = useState<DesktopProjectListItem[]>([]);
+  const [projectBundles, setProjectBundles] = useState<DesktopProjectBundleFile[]>([]);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [selectedBundleFile, setSelectedBundleFile] = useState("");
+  const [bundleMessage, setBundleMessage] = useState<string | null>(null);
+  const [bundleError, setBundleError] = useState<string | null>(null);
+  const [isExportingBundle, setIsExportingBundle] = useState(false);
+  const [isImportingBundle, setIsImportingBundle] = useState(false);
   const [isExportingReport, setIsExportingReport] = useState(false);
   const [exportedReportPath, setExportedReportPath] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -265,7 +275,11 @@ function App() {
 
     async function hydrateProject() {
       try {
-        const [lastProject, projects] = await Promise.all([loadLastDesktopProject(), listDesktopProjects()]);
+        const [lastProject, projects, bundles] = await Promise.all([
+          loadLastDesktopProject(),
+          listDesktopProjects(),
+          listDesktopProjectBundles()
+        ]);
 
         if (cancelled) return;
 
@@ -285,6 +299,10 @@ function App() {
         }
 
         setProjectList(projects);
+        setProjectBundles(bundles);
+        if (bundles[0]) {
+          setSelectedBundleFile(bundles[0].fileName);
+        }
         hydratedRef.current = true;
       } catch (error) {
         if (cancelled) return;
@@ -315,6 +333,17 @@ function App() {
     setProjectList(await listDesktopProjects());
   }
 
+  async function refreshProjectBundles() {
+    const bundles = await listDesktopProjectBundles();
+    setProjectBundles(bundles);
+    setSelectedBundleFile((current) => {
+      if (current && bundles.some((item) => item.fileName === current)) {
+        return current;
+      }
+      return bundles[0]?.fileName || "";
+    });
+  }
+
   async function persistProject() {
     const payload = createProjectEnvelope({
       projectId,
@@ -337,6 +366,7 @@ function App() {
       setSaveState("saved");
       setLastSavedAt(payload.updatedAt);
       await refreshProjectList();
+      await refreshProjectBundles();
     } catch (error) {
       setSaveState("error");
       setSaveError(error instanceof Error ? error.message : "프로젝트 저장에 실패했습니다.");
@@ -500,6 +530,64 @@ function App() {
 
   function updateReportDraft<K extends keyof DesktopReportDraft>(key: K, value: DesktopReportDraft[K]) {
     setReportDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleExportBundle() {
+    try {
+      setIsExportingBundle(true);
+      setBundleError(null);
+      setBundleMessage(null);
+
+      const payload = createProjectEnvelope({
+        projectId,
+        projectName,
+        data: {
+          companyName,
+          reportingYear,
+          boundaryApproach,
+          facilities,
+          sources,
+          reportDraft
+        }
+      });
+
+      const outputPath = await exportDesktopProjectBundle(payload);
+      setBundleMessage(`백업 완료: ${outputPath}`);
+      await refreshProjectBundles();
+    } catch (error) {
+      setBundleError(error instanceof Error ? error.message : ".ghgproj 백업에 실패했습니다.");
+    } finally {
+      setIsExportingBundle(false);
+    }
+  }
+
+  async function handleImportBundle() {
+    if (!selectedBundleFile) return;
+
+    try {
+      setIsImportingBundle(true);
+      setBundleError(null);
+      setBundleMessage(null);
+
+      const project = await importDesktopProjectBundle(selectedBundleFile);
+      setProjectId(project.projectId);
+      setProjectName(project.projectName);
+      setCompanyName(project.data.companyName);
+      setReportingYear(project.data.reportingYear);
+      setFacilities(project.data.facilities);
+      setBoundaryApproach(project.data.boundaryApproach);
+      setSources(project.data.sources);
+      setReportDraft(project.data.reportDraft || createDefaultReportDraft(project.data.reportingYear, project.data.companyName));
+      setLastSavedAt(project.updatedAt);
+      setSaveState("saved");
+      setBundleMessage(`불러오기 완료: ${selectedBundleFile}`);
+      await refreshProjectList();
+      await refreshProjectBundles();
+    } catch (error) {
+      setBundleError(error instanceof Error ? error.message : ".ghgproj 불러오기에 실패했습니다.");
+    } finally {
+      setIsImportingBundle(false);
+    }
   }
 
   async function handleExportDocx() {
@@ -675,6 +763,37 @@ function App() {
                 <option value="equity">지분율</option>
               </select>
             </label>
+          </div>
+          <div className="bundle-panel">
+            <div>
+              <p className="eyebrow">Project backup</p>
+              <h3>.ghgproj 백업 및 복원</h3>
+              <p className="project-meta">백업 파일은 기본적으로 `Downloads` 폴더에 저장됩니다.</p>
+            </div>
+            <div className="bundle-actions">
+              <button type="button" onClick={() => void handleExportBundle()} disabled={isExportingBundle || isLoadingProject}>
+                {isExportingBundle ? ".ghgproj 저장 중" : ".ghgproj 백업"}
+              </button>
+              <label>
+                백업 파일 선택
+                <select value={selectedBundleFile} onChange={(event) => setSelectedBundleFile(event.target.value)} disabled={projectBundles.length === 0 || isImportingBundle}>
+                  {projectBundles.length === 0 ? (
+                    <option value="">백업 파일 없음</option>
+                  ) : (
+                    projectBundles.map((bundle) => (
+                      <option key={bundle.fileName} value={bundle.fileName}>
+                        {bundle.fileName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <button type="button" className="ghost-button" onClick={() => void handleImportBundle()} disabled={!selectedBundleFile || isImportingBundle}>
+                {isImportingBundle ? "불러오는 중" : ".ghgproj 불러오기"}
+              </button>
+            </div>
+            {bundleMessage && <p className="project-meta">{bundleMessage}</p>}
+            {bundleError && <p className="error-copy">{bundleError}</p>}
           </div>
         </section>
 

@@ -44,6 +44,12 @@ export interface DesktopProjectListItem {
   updatedAt: string;
 }
 
+export interface DesktopProjectBundleFile {
+  fileName: string;
+  filePath: string;
+  updatedAt: string;
+}
+
 export function createProjectEnvelope(params: {
   projectId: string;
   projectName: string;
@@ -73,4 +79,16 @@ export async function loadDesktopProject(projectId: string): Promise<DesktopProj
 
 export async function listDesktopProjects(): Promise<DesktopProjectListItem[]> {
   return invoke<DesktopProjectListItem[]>("list_projects");
+}
+
+export async function exportDesktopProjectBundle(project: DesktopProjectEnvelope): Promise<string> {
+  return invoke<string>("export_project_bundle", { project });
+}
+
+export async function listDesktopProjectBundles(): Promise<DesktopProjectBundleFile[]> {
+  return invoke<DesktopProjectBundleFile[]>("list_project_bundle_files");
+}
+
+export async function importDesktopProjectBundle(fileName: string): Promise<DesktopProjectEnvelope> {
+  return invoke<DesktopProjectEnvelope>("import_project_bundle", { fileName });
 }
