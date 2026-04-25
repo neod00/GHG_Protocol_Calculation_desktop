@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { chapter9GuideTopics } from "@ghg/protocol-guide";
+import { LICENSE_VERIFY_URL, UPDATE_METADATA_URL } from "./config";
 import "./styles.css";
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
           <a>설정</a>
         </nav>
       </aside>
+
       <section className="content">
         <header className="topbar">
           <div>
@@ -24,12 +26,30 @@ function App() {
           </div>
           <button type="button">새 프로젝트</button>
         </header>
+
         <section className="hero-panel">
           <div>
             <h2>민감 데이터는 로컬에 저장하고, 보고서는 Word/PDF/HTML로 생성합니다.</h2>
-            <p>이 초기 화면은 Tauri 전환을 위한 스캐폴딩입니다. 다음 단계에서 기존 Scope 1/2 계산 로직과 보고서 템플릿을 이식합니다.</p>
+            <p>
+              이 초기 화면은 Tauri 전환을 위한 스캐폴딩입니다. 다음 단계에서 기존 Scope 1/2
+              계산 로직과 보고서 템플릿을 이식합니다.
+            </p>
           </div>
         </section>
+
+        <section className="service-panel">
+          <div>
+            <p className="eyebrow">Operations</p>
+            <h2>라이선스 서버 연결 준비됨</h2>
+          </div>
+          <dl>
+            <dt>License API</dt>
+            <dd>{LICENSE_VERIFY_URL}</dd>
+            <dt>Update API</dt>
+            <dd>{UPDATE_METADATA_URL}</dd>
+          </dl>
+        </section>
+
         <section className="grid">
           {chapter9GuideTopics.map((topic) => (
             <article key={topic.id} className="card">
@@ -45,3 +65,4 @@ function App() {
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
+

@@ -35,7 +35,7 @@
     "plugins":  {
                     "updater":  {
                                     "endpoints":  [
-                                                      "https://example.com/ghg-desktop/latest.json"
+                                                      "https://ghg-protocol-calculation-desktop-li.vercel.app/api/updates/latest"
                                                   ],
                                     "pubkey":  "REPLACE_WITH_TAURI_UPDATER_PUBLIC_KEY"
                                 }
