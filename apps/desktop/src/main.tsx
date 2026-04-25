@@ -1,12 +1,21 @@
-import React, { FormEvent, useEffect, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { chapter9GuideTopics } from "@ghg/protocol-guide";
 import { LICENSE_VERIFY_URL, UPDATE_METADATA_URL } from "./config";
+import { buildLicenseGate } from "./licenseGate";
 import { LicenseVerificationResult, verifyLicense } from "./licenseClient";
 import "./styles.css";
 
 const savedLicenseKeyStorageKey = "ghg-desktop-license-key";
 const savedLicenseResultStorageKey = "ghg-desktop-license-result";
+
+const navItems = [
+  { label: "Scope 1/2 계산", gated: true },
+  { label: "보고서 생성", gated: true },
+  { label: "배출계수", gated: true },
+  { label: "Scope 3 개별 문의", gated: false },
+  { label: "설정", gated: false }
+];
 
 function getStatusText(result: LicenseVerificationResult | null): string {
   if (!result) return "미인증";
@@ -52,20 +61,23 @@ function App() {
     localStorage.setItem(savedLicenseResultStorageKey, JSON.stringify(result));
   }
 
+  const licenseGate = useMemo(() => buildLicenseGate(licenseResult), [licenseResult]);
   const statusText = getStatusText(licenseResult);
-  const isLicensed = Boolean(licenseResult?.ok);
-  const requiresForceUpdate = Boolean(licenseResult?.forceUpdate);
 
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand-mark">GHG</div>
         <nav>
-          <a className="active">Scope 1/2 계산</a>
-          <a>보고서 생성</a>
-          <a>배출계수</a>
-          <a>Scope 3 개별 문의</a>
-          <a>설정</a>
+          {navItems.map((item, index) => {
+            const disabled = item.gated && !licenseGate.canUseCoreFeatures;
+            return (
+              <a key={item.label} className={`${index === 0 ? "active" : ""} ${disabled ? "locked" : ""}`}>
+                <span>{item.label}</span>
+                {disabled && <small>잠김</small>}
+              </a>
+            );
+          })}
         </nav>
       </aside>
 
@@ -75,7 +87,7 @@ function App() {
             <p className="eyebrow">Local-first desktop app</p>
             <h1>GHG Protocol Scope 1/2 보고서 작성 도구</h1>
           </div>
-          <button type="button" disabled={!isLicensed || requiresForceUpdate}>
+          <button type="button" disabled={!licenseGate.canCreateProject}>
             새 프로젝트
           </button>
         </header>
@@ -101,13 +113,26 @@ function App() {
                 {isChecking ? "확인 중" : "확인"}
               </button>
             </div>
-            <div className={`license-status ${isLicensed ? "active" : "inactive"}`}>
+            <div className={`license-status ${licenseResult?.ok ? "active" : "inactive"}`}>
               <strong>{statusText}</strong>
               {licenseResult?.customer && <span>{licenseResult.customer}</span>}
               {licenseResult?.expiresAt && <span>만료일 {licenseResult.expiresAt}</span>}
-              {requiresForceUpdate && <span>필수 업데이트가 필요합니다.</span>}
+              <span>{licenseGate.reasonText}</span>
             </div>
           </form>
+        </section>
+
+        <section className={`feature-lock-panel ${licenseGate.canUseCoreFeatures ? "unlocked" : "locked"}`}>
+          <div>
+            <p className="eyebrow">Access control</p>
+            <h2>{licenseGate.canUseCoreFeatures ? "핵심 기능 사용 가능" : "핵심 기능 잠김"}</h2>
+            <p>{licenseGate.reasonText}</p>
+          </div>
+          <div className="feature-grid">
+            <span className={licenseGate.canCreateProject ? "enabled" : "disabled"}>프로젝트 생성</span>
+            <span className={licenseGate.canGenerateReport ? "enabled" : "disabled"}>보고서 생성</span>
+            <span className={licenseGate.canEditEmissionFactors ? "enabled" : "disabled"}>배출계수 편집</span>
+          </div>
         </section>
 
         <section className="hero-panel">

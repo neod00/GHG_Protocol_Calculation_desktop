@@ -32,12 +32,27 @@ body { margin: 0; }
 
 nav { display: grid; gap: 8px; }
 nav a {
+  display: grid;
+  gap: 2px;
   color: #d7dde7;
   padding: 11px 12px;
   border-radius: 8px;
   font-size: 14px;
 }
 nav a.active, nav a:hover { background: rgba(255, 255, 255, 0.1); color: white; }
+nav a.locked {
+  color: rgba(215, 221, 231, 0.55);
+  cursor: not-allowed;
+}
+nav a.locked:hover {
+  background: transparent;
+  color: rgba(215, 221, 231, 0.55);
+}
+nav small {
+  color: rgba(215, 221, 231, 0.45);
+  font-size: 11px;
+  font-weight: 700;
+}
 
 .content { padding: 32px; }
 .topbar {
@@ -147,6 +162,41 @@ input:focus {
   background: #fff1e6;
   color: #6d3900;
 }
+.feature-lock-panel {
+  display: grid;
+  gap: 14px;
+  background: #f8fafc;
+  border: 1px solid #e1e6ef;
+  border-radius: 10px;
+  padding: 18px;
+}
+.feature-lock-panel h3 {
+  font-size: 16px;
+  margin-bottom: 0;
+}
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.feature-grid span {
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #526176;
+  font-size: 13px;
+  font-weight: 800;
+}
+.feature-grid span.enabled {
+  background: #e7f8ee;
+  border-color: #b9e7ca;
+  color: #165b33;
+}
+.feature-grid span.disabled {
+  background: #f1f5f9;
+  border-color: #d9e1ec;
+  color: #7b8798;
+}
 .service-panel {
   display: grid;
   grid-template-columns: 260px 1fr;
@@ -183,5 +233,5 @@ input:focus {
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .license-panel, .service-panel, .grid { grid-template-columns: 1fr; }
+  .license-panel, .service-panel, .feature-grid, .grid { grid-template-columns: 1fr; }
 }
