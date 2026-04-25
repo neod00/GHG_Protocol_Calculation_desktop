@@ -60,6 +60,28 @@ const defaultFacilities: Facility[] = [
   { id: "facility-plant", name: "공장", equityShare: 100 }
 ];
 
+const scope2MixOptions = [
+  { key: "ppa", label: "PPA 전력" },
+  { key: "rec", label: "REC 전력" },
+  { key: "greenPremium", label: "녹색프리미엄" },
+  { key: "conventional", label: "일반전력" }
+] as const;
+
+type Scope2MixKey = (typeof scope2MixOptions)[number]["key"];
+
+function toMonthlyArray(annualValue: number): number[] {
+  const normalized = Number.isFinite(annualValue) ? annualValue : 0;
+  return Array(12).fill(normalized / 12);
+}
+
+function getAnnualQuantity(source: EmissionSource): number {
+  return source.monthlyQuantities.reduce((sum, value) => sum + value, 0);
+}
+
+function getAnnualMixQuantity(values?: number[]): number {
+  return values?.reduce((sum, value) => sum + value, 0) || 0;
+}
+
 function createSource(category: EmissionCategory, factors: Scope12FactorSet, facilityId: string): EmissionSource {
   const factor = getFactorsForCategory(category, factors)[0];
   const unit = "units" in factor ? factor.units[0] : "kg";
@@ -118,10 +140,6 @@ function getStatusText(result: LicenseVerificationResult | null): string {
   if (result.reason === "blocked") return "차단";
   if (result.reason === "device_limit_exceeded") return "기기 수 초과";
   return "확인 필요";
-}
-
-function getAnnualQuantity(source: EmissionSource): number {
-  return source.monthlyQuantities.reduce((sum, value) => sum + value, 0);
 }
 
 function formatTimestamp(value: string | null): string {
@@ -235,11 +253,7 @@ function App() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-
-    const timeout = window.setTimeout(() => {
-      void persistProject();
-    }, 500);
-
+    const timeout = window.setTimeout(() => void persistProject(), 500);
     return () => window.clearTimeout(timeout);
   }, [projectId, projectName, companyName, reportingYear, boundaryApproach, facilities, sources]);
 
@@ -247,11 +261,7 @@ function App() {
     setIsLoadingProject(true);
     try {
       const project = await loadDesktopProject(nextProjectId);
-
-      if (!project) {
-        setIsLoadingProject(false);
-        return;
-      }
+      if (!project) return;
 
       setProjectId(project.projectId);
       setProjectName(project.projectName);
@@ -315,7 +325,8 @@ function App() {
       category,
       fuelType: next.fuelType,
       unit: next.unit,
-      description: categoryLabels[category]
+      description: categoryLabels[category],
+      powerMix: category === EmissionCategory.PurchasedEnergy ? source.powerMix : undefined
     });
   }
 
@@ -331,10 +342,65 @@ function App() {
     setSources((current) =>
       current.map((source) =>
         source.id === sourceId
-          ? { ...source, monthlyQuantities: Array(12).fill((Number.isFinite(annualQuantity) ? annualQuantity : 0) / 12) }
+          ? { ...source, monthlyQuantities: toMonthlyArray(annualQuantity) }
           : source
       )
     );
+  }
+
+  function updatePowerMix(sourceId: string, mixKey: Scope2MixKey, updater: (current: any | undefined) => any | undefined) {
+    setSources((current) =>
+      current.map((source) => {
+        if (source.id !== sourceId) return source;
+        const currentMix = source.powerMix || {};
+        const nextEntry = updater(currentMix[mixKey]);
+        const nextMix = { ...currentMix };
+
+        if (typeof nextEntry === "undefined") {
+          delete nextMix[mixKey];
+        } else {
+          nextMix[mixKey] = nextEntry;
+        }
+
+        return {
+          ...source,
+          powerMix: Object.keys(nextMix).length > 0 ? nextMix : undefined
+        };
+      })
+    );
+  }
+
+  function togglePowerMixSection(sourceId: string, mixKey: Scope2MixKey, enabled: boolean, unit: string) {
+    updatePowerMix(sourceId, mixKey, (current) => {
+      if (!enabled) return undefined;
+      if (current) return current;
+
+      if (mixKey === "ppa") {
+        return { quantity: toMonthlyArray(0), factor: 0, supplierName: "", contractId: "" };
+      }
+      if (mixKey === "rec") {
+        return { quantity: toMonthlyArray(0), factor: 0, certificateId: "", issuer: "", meetsRequirements: true };
+      }
+      if (mixKey === "greenPremium") {
+        return {
+          quantity: toMonthlyArray(0),
+          factor: 0,
+          supplierName: "",
+          contractId: "",
+          treatAsRenewable: false,
+          supplierFactorProvided: false,
+          supplierFactor: 0
+        };
+      }
+      return { quantity: toMonthlyArray(0), factor: 0, source: "national-average", supplierName: "" };
+    });
+  }
+
+  function updatePowerMixAnnualQuantity(sourceId: string, mixKey: Scope2MixKey, annualQuantity: number) {
+    updatePowerMix(sourceId, mixKey, (current) => ({
+      ...current,
+      quantity: toMonthlyArray(annualQuantity)
+    }));
   }
 
   function removeSource(sourceId: string) {
@@ -561,76 +627,302 @@ function App() {
               const sourceInventory = calculateScope12Inventory({ sources: [source], facilities, boundaryApproach });
               const sourceFormula = sourceInventory.sourceFormulas[source.id];
               const scope = getScopeForCategory(source.category);
-              const rowEmission = scope === "scope2" ? sourceInventory.scope2MarketTotal : sourceInventory.scope1Total;
+              const isScope2 = scope === "scope2";
 
               return (
-                <div className="source-row" key={source.id}>
-                  <select
-                    value={source.category}
-                    disabled={!licenseGate.canUseCoreFeatures}
-                    onChange={(event) => updateSourceCategory(source, event.target.value as EmissionCategory)}
-                  >
-                    {calculationCategories.map((category) => (
-                      <option key={category} value={category}>
-                        {categoryLabels[category]}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={source.facilityId}
-                    disabled={!licenseGate.canUseCoreFeatures}
-                    onChange={(event) => updateSource(source.id, { facilityId: event.target.value })}
-                  >
-                    {facilities.map((facility) => (
-                      <option key={facility.id} value={facility.id}>
-                        {facility.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    value={source.description}
-                    disabled={!licenseGate.canUseCoreFeatures}
-                    onChange={(event) => updateSource(source.id, { description: event.target.value })}
-                  />
-                  <div className="factor-fields">
+                <React.Fragment key={source.id}>
+                  <div className="source-row">
                     <select
-                      value={source.fuelType}
+                      value={source.category}
                       disabled={!licenseGate.canUseCoreFeatures}
-                      onChange={(event) => updateSourceFactor(source, event.target.value)}
+                      onChange={(event) => updateSourceCategory(source, event.target.value as EmissionCategory)}
                     >
-                      {factorOptions.map((factor) => (
-                        <option key={factor.name} value={factor.name}>
-                          {factor.name}
+                      {calculationCategories.map((category) => (
+                        <option key={category} value={category}>
+                          {categoryLabels[category]}
                         </option>
                       ))}
                     </select>
                     <select
-                      value={source.unit}
+                      value={source.facilityId}
                       disabled={!licenseGate.canUseCoreFeatures}
-                      onChange={(event) => updateSource(source.id, { unit: event.target.value })}
+                      onChange={(event) => updateSource(source.id, { facilityId: event.target.value })}
                     >
-                      {units.map((unit) => (
-                        <option key={unit} value={unit}>
-                          {unit}
+                      {facilities.map((facility) => (
+                        <option key={facility.id} value={facility.id}>
+                          {facility.name}
                         </option>
                       ))}
                     </select>
+                    <input
+                      value={source.description}
+                      disabled={!licenseGate.canUseCoreFeatures}
+                      onChange={(event) => updateSource(source.id, { description: event.target.value })}
+                    />
+                    <div className="factor-fields">
+                      <select
+                        value={source.fuelType}
+                        disabled={!licenseGate.canUseCoreFeatures}
+                        onChange={(event) => updateSourceFactor(source, event.target.value)}
+                      >
+                        {factorOptions.map((factor) => (
+                          <option key={factor.name} value={factor.name}>
+                            {factor.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={source.unit}
+                        disabled={!licenseGate.canUseCoreFeatures}
+                        onChange={(event) => updateSource(source.id, { unit: event.target.value })}
+                      >
+                        {units.map((unit) => (
+                          <option key={unit} value={unit}>
+                            {unit}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      value={getAnnualQuantity(source)}
+                      disabled={!licenseGate.canUseCoreFeatures}
+                      onChange={(event) => updateAnnualQuantity(source.id, Number(event.target.value))}
+                    />
+                    <div className="result-cell" title={sourceFormula}>
+                      {isScope2 ? (
+                        <>
+                          <strong>L {formatKgCO2eAsTCO2e(sourceInventory.scope2LocationTotal)}</strong>
+                          <strong>M {formatKgCO2eAsTCO2e(sourceInventory.scope2MarketTotal)}</strong>
+                        </>
+                      ) : (
+                        <>
+                          <strong>{formatKgCO2eAsTCO2e(sourceInventory.scope1Total)}</strong>
+                          <small>Scope 1</small>
+                        </>
+                      )}
+                    </div>
+                    <button type="button" className="ghost-button" disabled={!licenseGate.canUseCoreFeatures} onClick={() => removeSource(source.id)}>
+                      삭제
+                    </button>
                   </div>
-                  <input
-                    type="number"
-                    min="0"
-                    value={getAnnualQuantity(source)}
-                    disabled={!licenseGate.canUseCoreFeatures}
-                    onChange={(event) => updateAnnualQuantity(source.id, Number(event.target.value))}
-                  />
-                  <div className="result-cell" title={sourceFormula}>
-                    <strong>{formatKgCO2eAsTCO2e(rowEmission)}</strong>
-                    <small>{scope === "scope2" ? "Market 기준" : "Scope 1"}</small>
-                  </div>
-                  <button type="button" className="ghost-button" disabled={!licenseGate.canUseCoreFeatures} onClick={() => removeSource(source.id)}>
-                    삭제
-                  </button>
-                </div>
+
+                  {isScope2 && (
+                    <div className="source-detail-card">
+                      <div className="detail-header">
+                        <div>
+                          <p className="eyebrow">Scope 2 market-based</p>
+                          <h3>전력 계약 수단 상세 입력</h3>
+                        </div>
+                        <p>Location-based는 총 사용량으로 계산하고, Market-based는 아래 power mix를 우선 반영합니다.</p>
+                      </div>
+
+                      <div className="mix-toggle-grid">
+                        {scope2MixOptions.map((option) => {
+                          const enabled = Boolean(source.powerMix?.[option.key]);
+                          return (
+                            <label key={option.key} className={`mix-toggle ${enabled ? "enabled" : ""}`}>
+                              <input
+                                type="checkbox"
+                                checked={enabled}
+                                disabled={!licenseGate.canUseCoreFeatures}
+                                onChange={(event) => togglePowerMixSection(source.id, option.key, event.target.checked, source.unit)}
+                              />
+                              <span>{option.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mix-detail-grid">
+                        {source.powerMix?.ppa && (
+                          <section className="mix-card">
+                            <h4>PPA 전력</h4>
+                            <label>
+                              연간 사용량
+                              <input
+                                type="number"
+                                min="0"
+                                value={getAnnualMixQuantity(source.powerMix.ppa.quantity)}
+                                onChange={(event) => updatePowerMixAnnualQuantity(source.id, "ppa", Number(event.target.value))}
+                              />
+                            </label>
+                            <label>
+                              배출계수
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                value={source.powerMix.ppa.factor}
+                                onChange={(event) =>
+                                  updatePowerMix(source.id, "ppa", (current) => ({
+                                    ...current,
+                                    factor: Number(event.target.value)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label>
+                              공급사명
+                              <input
+                                value={source.powerMix.ppa.supplierName || ""}
+                                onChange={(event) =>
+                                  updatePowerMix(source.id, "ppa", (current) => ({
+                                    ...current,
+                                    supplierName: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                          </section>
+                        )}
+
+                        {source.powerMix?.rec && (
+                          <section className="mix-card">
+                            <h4>REC 전력</h4>
+                            <label>
+                              연간 사용량
+                              <input
+                                type="number"
+                                min="0"
+                                value={getAnnualMixQuantity(source.powerMix.rec.quantity)}
+                                onChange={(event) => updatePowerMixAnnualQuantity(source.id, "rec", Number(event.target.value))}
+                              />
+                            </label>
+                            <label className="checkbox-row">
+                              <input
+                                type="checkbox"
+                                checked={source.powerMix.rec.meetsRequirements ?? true}
+                                onChange={(event) =>
+                                  updatePowerMix(source.id, "rec", (current) => ({
+                                    ...current,
+                                    meetsRequirements: event.target.checked
+                                  }))
+                                }
+                              />
+                              <span>품질 기준 충족</span>
+                            </label>
+                            <label>
+                              인증서 번호
+                              <input
+                                value={source.powerMix.rec.certificateId || ""}
+                                onChange={(event) =>
+                                  updatePowerMix(source.id, "rec", (current) => ({
+                                    ...current,
+                                    certificateId: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                          </section>
+                        )}
+
+                        {source.powerMix?.greenPremium && (
+                          <section className="mix-card">
+                            <h4>녹색프리미엄</h4>
+                            <label>
+                              연간 사용량
+                              <input
+                                type="number"
+                                min="0"
+                                value={getAnnualMixQuantity(source.powerMix.greenPremium.quantity)}
+                                onChange={(event) => updatePowerMixAnnualQuantity(source.id, "greenPremium", Number(event.target.value))}
+                              />
+                            </label>
+                            <label className="checkbox-row">
+                              <input
+                                type="checkbox"
+                                checked={source.powerMix.greenPremium.treatAsRenewable ?? false}
+                                onChange={(event) =>
+                                  updatePowerMix(source.id, "greenPremium", (current) => ({
+                                    ...current,
+                                    treatAsRenewable: event.target.checked
+                                  }))
+                                }
+                              />
+                              <span>재생에너지 계약수단으로 처리</span>
+                            </label>
+                            <label className="checkbox-row">
+                              <input
+                                type="checkbox"
+                                checked={source.powerMix.greenPremium.supplierFactorProvided ?? false}
+                                onChange={(event) =>
+                                  updatePowerMix(source.id, "greenPremium", (current) => ({
+                                    ...current,
+                                    supplierFactorProvided: event.target.checked
+                                  }))
+                                }
+                              />
+                              <span>공급사 배출계수 사용</span>
+                            </label>
+                            <label>
+                              공급사 배출계수
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                value={source.powerMix.greenPremium.supplierFactor ?? 0}
+                                onChange={(event) =>
+                                  updatePowerMix(source.id, "greenPremium", (current) => ({
+                                    ...current,
+                                    supplierFactor: Number(event.target.value)
+                                  }))
+                                }
+                              />
+                            </label>
+                          </section>
+                        )}
+
+                        {source.powerMix?.conventional && (
+                          <section className="mix-card">
+                            <h4>일반전력</h4>
+                            <label>
+                              연간 사용량
+                              <input
+                                type="number"
+                                min="0"
+                                value={getAnnualMixQuantity(source.powerMix.conventional.quantity)}
+                                onChange={(event) => updatePowerMixAnnualQuantity(source.id, "conventional", Number(event.target.value))}
+                              />
+                            </label>
+                            <label>
+                              배출계수
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.0001"
+                                value={source.powerMix.conventional.factor}
+                                onChange={(event) =>
+                                  updatePowerMix(source.id, "conventional", (current) => ({
+                                    ...current,
+                                    factor: Number(event.target.value)
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label>
+                              배출계수 기준
+                              <select
+                                value={source.powerMix.conventional.source}
+                                onChange={(event) =>
+                                  updatePowerMix(source.id, "conventional", (current) => ({
+                                    ...current,
+                                    source: event.target.value
+                                  }))
+                                }
+                              >
+                                <option value="national-average">국가 평균</option>
+                                <option value="residual-mix">Residual mix</option>
+                                <option value="supplier-specific">공급사 제공</option>
+                              </select>
+                            </label>
+                          </section>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </React.Fragment>
               );
             })}
           </div>
