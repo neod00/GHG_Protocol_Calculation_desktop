@@ -1,0 +1,15 @@
+{
+  "name": "ghg-desktop-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first GHG Protocol Scope 1/2 desktop app and license admin workspace.",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev:desktop": "npm --workspace @ghg/desktop run dev",
+    "dev:license-admin": "npm --workspace @ghg/license-admin run dev",
+    "build:desktop": "npm --workspace @ghg/desktop run build",
+    "build:license-admin": "npm --workspace @ghg/license-admin run build",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": { "node": ">=20" }
+}
