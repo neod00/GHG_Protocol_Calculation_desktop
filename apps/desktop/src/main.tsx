@@ -27,6 +27,7 @@ import { LICENSE_VERIFY_URL, UPDATE_METADATA_URL } from "./config";
 import { buildLicenseGate } from "./licenseGate";
 import { LicenseVerificationResult, verifyLicense } from "./licenseClient";
 import { DesktopResultsDisplay } from "./components/DesktopResultsDisplay";
+import { DesktopScopeCalculators } from "./components/DesktopScopeCalculators";
 import {
   createProjectEnvelope,
   DesktopProjectData,
@@ -270,6 +271,7 @@ function App() {
   const [facilities, setFacilities] = useState<Facility[]>(defaultFacilities);
   const [boundaryApproach, setBoundaryApproach] = useState<BoundaryApproach>("operational");
   const [sources, setSources] = useState<EmissionSource[]>(createDefaultProjectData().sources);
+  const [openCategory, setOpenCategory] = useState<EmissionCategory | null>(EmissionCategory.StationaryCombustion);
   const [reportDraft, setReportDraft] = useState<DesktopReportDraft>(
     createDefaultReportDraft(new Date().getFullYear().toString(), "샘플 회사")
   );
@@ -557,6 +559,10 @@ function App() {
       ...current,
       quantity: toMonthlyArray(annualQuantity)
     }));
+  }
+
+  function toggleCategory(category: EmissionCategory) {
+    setOpenCategory((current) => (current === category ? null : category));
   }
 
   function removeSource(sourceId: string) {
@@ -962,7 +968,21 @@ function App() {
 
           {!licenseGate.canUseCoreFeatures && <p className="lock-copy">라이선스 인증 후 배출원 입력과 계산 기능을 사용할 수 있습니다.</p>}
 
-          <div className="source-table">
+          <DesktopScopeCalculators
+            sources={sources}
+            facilities={facilities}
+            boundaryApproach={boundaryApproach}
+            openCategory={openCategory}
+            disabled={!licenseGate.canUseCoreFeatures}
+            reportingYear={reportingYear}
+            onToggleCategory={toggleCategory}
+            onAddSource={addSource}
+            onRemoveSource={removeSource}
+            onUpdateSource={updateSource}
+            onFuelTypeChange={updateSourceFactor}
+          />
+
+          <div className="source-table legacy-source-table" hidden>
             <div className="source-row source-head">
               <span>구분</span>
               <span>시설</span>

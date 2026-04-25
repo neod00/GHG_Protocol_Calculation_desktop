@@ -219,6 +219,11 @@ Desktop target:
    - report generation
    - license gating
 
+Progress:
+- `DesktopResultsDisplay` has been added as the first web-style result dashboard.
+- `DesktopScopeCalculators` and `DesktopEmissionSourceCard` have been added as the first Scope 1/2 card-style input surface.
+- The old simplified source table is temporarily hidden in `apps/desktop/src/main.tsx` and should be removed after Scope 2 market-based contract controls are moved into the new card surface.
+
 ### Phase 2: Scope 1/2 Calculation Parity
 
 1. Align desktop `@ghg/core` constants with the web app Scope 1/2 constants.
@@ -287,4 +292,3 @@ Create the desktop parity shell:
 3. Wire these components to local SQLite project state instead of Supabase.
 4. Keep Scope 3 as an inquiry panel.
 5. Keep the current report/export backend available behind the web-style report action.
-
