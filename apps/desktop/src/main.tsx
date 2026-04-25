@@ -1,17 +1,26 @@
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  BoundaryApproach,
   calculateScope12Inventory,
+  calculateSourceEmissions,
   DEFAULT_SCOPE12_FACTORS,
   EmissionCategory,
   EmissionSource,
+  EmissionSourceResult,
   Facility,
   formatKgCO2eAsTCO2e,
   getFactorsForCategory,
   getScopeForCategory,
   Scope12FactorSet
 } from "@ghg/core";
-import { chapter9GuideTopics } from "@ghg/protocol-guide";
+import {
+  buildChapter9Checklist,
+  buildReportTotals,
+  createDraftChapter9Report,
+  renderChapter9ReportHtml,
+  summarizeFacilityResults
+} from "@ghg/report";
 import { LICENSE_VERIFY_URL, UPDATE_METADATA_URL } from "./config";
 import { buildLicenseGate } from "./licenseGate";
 import { LicenseVerificationResult, verifyLicense } from "./licenseClient";
@@ -19,6 +28,7 @@ import {
   createProjectEnvelope,
   DesktopProjectData,
   DesktopProjectListItem,
+  DesktopReportDraft,
   listDesktopProjects,
   loadDesktopProject,
   loadLastDesktopProject,
@@ -50,14 +60,45 @@ const categoryLabels: Record<string, string> = {
   [EmissionCategory.StationaryCombustion]: "Scope 1 - 고정연소",
   [EmissionCategory.MobileCombustion]: "Scope 1 - 이동연소",
   [EmissionCategory.ProcessEmissions]: "Scope 1 - 공정배출",
-  [EmissionCategory.FugitiveEmissions]: "Scope 1 - 탈루배출",
-  [EmissionCategory.Waste]: "Scope 1 - 사업장 폐기물",
-  [EmissionCategory.PurchasedEnergy]: "Scope 2 - 구매 에너지"
+  [EmissionCategory.FugitiveEmissions]: "Scope 1 - 누출배출",
+  [EmissionCategory.Waste]: "Scope 1 - 폐기물",
+  [EmissionCategory.PurchasedEnergy]: "Scope 2 - 구매전력"
 };
+
+const boundaryApproachLabels: Record<BoundaryApproach, string> = {
+  operational: "운영 통제",
+  financial: "재무 통제",
+  equity: "지분율"
+};
+
+const verificationLabels = {
+  not_performed: "미검증",
+  internal_review: "내부 검토",
+  external_verification: "외부 검증"
+} as const;
 
 const defaultFacilities: Facility[] = [
   { id: "facility-headquarters", name: "본사", equityShare: 100 },
   { id: "facility-plant", name: "공장", equityShare: 100 }
+];
+
+const reportGuideItems = [
+  {
+    title: "기업 및 인벤토리 경계",
+    summary: "조직 경계, 운영 경계, 포함 범위와 제외 범위를 보고서에 명확히 적어야 합니다."
+  },
+  {
+    title: "배출량 정보",
+    summary: "Scope 1, Scope 2 location-based, market-based 결과와 산정 범위를 함께 제시해야 합니다."
+  },
+  {
+    title: "기준연도 정책",
+    summary: "기준연도 선정 사유와 구조 변경 시 재산정 원칙을 빠뜨리면 보고서 품질이 크게 떨어집니다."
+  },
+  {
+    title: "검증 및 담당자",
+    summary: "검증 여부, 담당자 정보, 필요 시 검증 의견을 남겨야 실무 보고서로 바로 사용할 수 있습니다."
+  }
 ];
 
 const scope2MixOptions = [
@@ -84,7 +125,7 @@ function getAnnualMixQuantity(values?: number[]): number {
 
 function createSource(category: EmissionCategory, factors: Scope12FactorSet, facilityId: string): EmissionSource {
   const factor = getFactorsForCategory(category, factors)[0];
-  const unit = "units" in factor ? factor.units[0] : "kg";
+  const unit = factor && "units" in factor ? factor.units[0] : "kg";
   const fuelType = factor?.name || "";
 
   return {
@@ -98,10 +139,33 @@ function createSource(category: EmissionCategory, factors: Scope12FactorSet, fac
   };
 }
 
-function createDefaultProjectData(): DesktopProjectData {
+function createDefaultReportDraft(year: string, companyName: string): DesktopReportDraft {
   return {
-    companyName: "샘플 회사",
-    reportingYear: new Date().getFullYear().toString(),
+    reportingPeriod: `${year}-01-01 ~ ${year}-12-31`,
+    organizationalBoundarySummary: `${companyName}의 조직 경계를 설정하고 연결기준을 명시합니다.`,
+    operationalBoundarySummary: "Scope 1 직접배출과 Scope 2 구매전력 간접배출을 포함합니다.",
+    excludedActivitiesText: "현재 제외된 배출원 없음",
+    methodologySummary: "활동자료 x 배출계수 방식으로 산정하며, Scope 2는 location-based와 market-based를 함께 제시합니다.",
+    emissionFactorSourcesText: "국가 고시 배출계수\nGHG Protocol Scope 2 Guidance\n내부 관리 배출계수",
+    recalculationPolicy: "조직 경계 변경, 산정 방법 변경, 중대한 데이터 정정이 발생하면 기준연도 재산정 여부를 검토합니다.",
+    baseYearSelectionReason: "현재 보고연도를 기준연도로 설정한 초안입니다.",
+    verificationStatus: "not_performed",
+    verifierName: "",
+    verificationOpinion: "",
+    contactDepartment: "환경안전팀",
+    contactName: "",
+    contactEmail: "",
+    contactPhone: ""
+  };
+}
+
+function createDefaultProjectData(): DesktopProjectData {
+  const reportingYear = new Date().getFullYear().toString();
+  const companyName = "샘플 회사";
+
+  return {
+    companyName,
+    reportingYear,
     boundaryApproach: "operational",
     facilities: defaultFacilities,
     sources: [
@@ -123,7 +187,8 @@ function createDefaultProjectData(): DesktopProjectData {
         monthlyQuantities: [120, 130, 125, 140, 150, 160, 180, 175, 155, 145, 135, 125],
         unit: "liters"
       }
-    ]
+    ],
+    reportDraft: createDefaultReportDraft(reportingYear, companyName)
   };
 }
 
@@ -147,6 +212,13 @@ function formatTimestamp(value: string | null): string {
   return new Date(value).toLocaleString("ko-KR");
 }
 
+function parseMultilineText(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function App() {
   const [licenseKey, setLicenseKey] = useState("");
   const [licenseResult, setLicenseResult] = useState<LicenseVerificationResult | null>(null);
@@ -157,8 +229,11 @@ function App() {
   const [companyName, setCompanyName] = useState("샘플 회사");
   const [reportingYear, setReportingYear] = useState(new Date().getFullYear().toString());
   const [facilities, setFacilities] = useState<Facility[]>(defaultFacilities);
-  const [boundaryApproach, setBoundaryApproach] = useState<"operational" | "financial" | "equity">("operational");
+  const [boundaryApproach, setBoundaryApproach] = useState<BoundaryApproach>("operational");
   const [sources, setSources] = useState<EmissionSource[]>(createDefaultProjectData().sources);
+  const [reportDraft, setReportDraft] = useState<DesktopReportDraft>(
+    createDefaultReportDraft(new Date().getFullYear().toString(), "샘플 회사")
+  );
   const [projectList, setProjectList] = useState<DesktopProjectListItem[]>([]);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -185,10 +260,7 @@ function App() {
 
     async function hydrateProject() {
       try {
-        const [lastProject, projects] = await Promise.all([
-          loadLastDesktopProject(),
-          listDesktopProjects()
-        ]);
+        const [lastProject, projects] = await Promise.all([loadLastDesktopProject(), listDesktopProjects()]);
 
         if (cancelled) return;
 
@@ -200,6 +272,10 @@ function App() {
           setFacilities(lastProject.data.facilities);
           setBoundaryApproach(lastProject.data.boundaryApproach);
           setSources(lastProject.data.sources);
+          setReportDraft(
+            lastProject.data.reportDraft ||
+              createDefaultReportDraft(lastProject.data.reportingYear, lastProject.data.companyName)
+          );
           setLastSavedAt(lastProject.updatedAt);
         }
 
@@ -220,6 +296,16 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    setReportDraft((current) => ({
+      ...current,
+      reportingPeriod:
+        current.reportingPeriod.trim().length === 0
+          ? `${reportingYear}-01-01 ~ ${reportingYear}-12-31`
+          : current.reportingPeriod
+    }));
+  }, [reportingYear]);
+
   async function refreshProjectList() {
     setProjectList(await listDesktopProjects());
   }
@@ -233,7 +319,8 @@ function App() {
         reportingYear,
         boundaryApproach,
         facilities,
-        sources
+        sources,
+        reportDraft
       }
     });
 
@@ -255,7 +342,7 @@ function App() {
     if (!hydratedRef.current) return;
     const timeout = window.setTimeout(() => void persistProject(), 500);
     return () => window.clearTimeout(timeout);
-  }, [projectId, projectName, companyName, reportingYear, boundaryApproach, facilities, sources]);
+  }, [projectId, projectName, companyName, reportingYear, boundaryApproach, facilities, sources, reportDraft]);
 
   async function loadProjectFromList(nextProjectId: string) {
     setIsLoadingProject(true);
@@ -270,6 +357,7 @@ function App() {
       setFacilities(project.data.facilities);
       setBoundaryApproach(project.data.boundaryApproach);
       setSources(project.data.sources);
+      setReportDraft(project.data.reportDraft || createDefaultReportDraft(project.data.reportingYear, project.data.companyName));
       setLastSavedAt(project.updatedAt);
       setSaveState("saved");
       setSaveError(null);
@@ -304,6 +392,7 @@ function App() {
     setFacilities(data.facilities);
     setBoundaryApproach(data.boundaryApproach);
     setSources(data.sources);
+    setReportDraft(data.reportDraft || createDefaultReportDraft(data.reportingYear, data.companyName));
     setLastSavedAt(null);
     setSaveState("idle");
     setSaveError(null);
@@ -314,9 +403,7 @@ function App() {
   }
 
   function updateSource(sourceId: string, patch: Partial<EmissionSource>) {
-    setSources((current) =>
-      current.map((source) => (source.id === sourceId ? { ...source, ...patch } : source))
-    );
+    setSources((current) => current.map((source) => (source.id === sourceId ? { ...source, ...patch } : source)));
   }
 
   function updateSourceCategory(source: EmissionSource, category: EmissionCategory) {
@@ -341,36 +428,35 @@ function App() {
   function updateAnnualQuantity(sourceId: string, annualQuantity: number) {
     setSources((current) =>
       current.map((source) =>
-        source.id === sourceId
-          ? { ...source, monthlyQuantities: toMonthlyArray(annualQuantity) }
-          : source
+        source.id === sourceId ? { ...source, monthlyQuantities: toMonthlyArray(annualQuantity) } : source
       )
     );
   }
 
-  function updatePowerMix(sourceId: string, mixKey: Scope2MixKey, updater: (current: any | undefined) => any | undefined) {
+  function updatePowerMix(
+    sourceId: string,
+    mixKey: Scope2MixKey,
+    updater: (current: Record<string, unknown> | undefined) => Record<string, unknown> | undefined
+  ) {
     setSources((current) =>
       current.map((source) => {
         if (source.id !== sourceId) return source;
         const currentMix = source.powerMix || {};
-        const nextEntry = updater(currentMix[mixKey]);
+        const nextEntry = updater(currentMix[mixKey] as Record<string, unknown> | undefined);
         const nextMix = { ...currentMix };
 
         if (typeof nextEntry === "undefined") {
           delete nextMix[mixKey];
         } else {
-          nextMix[mixKey] = nextEntry;
+          nextMix[mixKey] = nextEntry as never;
         }
 
-        return {
-          ...source,
-          powerMix: Object.keys(nextMix).length > 0 ? nextMix : undefined
-        };
+        return { ...source, powerMix: Object.keys(nextMix).length > 0 ? nextMix : undefined };
       })
     );
   }
 
-  function togglePowerMixSection(sourceId: string, mixKey: Scope2MixKey, enabled: boolean, unit: string) {
+  function togglePowerMixSection(sourceId: string, mixKey: Scope2MixKey, enabled: boolean) {
     updatePowerMix(sourceId, mixKey, (current) => {
       if (!enabled) return undefined;
       if (current) return current;
@@ -407,12 +493,74 @@ function App() {
     setSources((current) => current.filter((source) => source.id !== sourceId));
   }
 
+  function updateReportDraft<K extends keyof DesktopReportDraft>(key: K, value: DesktopReportDraft[K]) {
+    setReportDraft((current) => ({ ...current, [key]: value }));
+  }
+
   const licenseGate = useMemo(() => buildLicenseGate(licenseResult), [licenseResult]);
   const statusText = getStatusText(licenseResult);
   const results = useMemo(
     () => calculateScope12Inventory({ sources, facilities, boundaryApproach }),
     [sources, facilities, boundaryApproach]
   );
+
+  const reportSourceResults = useMemo<EmissionSourceResult[]>(() => {
+    return sources.map((source) => {
+      const calculation = calculateSourceEmissions(source, DEFAULT_SCOPE12_FACTORS);
+      const scope = getScopeForCategory(source.category);
+      const emissionsTCO2e =
+        scope === "scope1" ? calculation.scope1 / 1000 : Math.max(calculation.scope2Location, calculation.scope2Market) / 1000;
+
+      return {
+        ...source,
+        emissionsTCO2e,
+        formula: calculation.formula || ""
+      };
+    });
+  }, [sources]);
+
+  const reportChecklist = useMemo(() => {
+    const boundary = {
+      companyName,
+      reportingYear,
+      consolidationApproach: boundaryApproach,
+      facilities
+    };
+
+    const reportData = createDraftChapter9Report({
+      boundary,
+      reportingPeriod: reportDraft.reportingPeriod,
+      sources: reportSourceResults,
+      rawSources: sources,
+      totals: buildReportTotals({
+        scope1KgCO2e: results.scope1Total,
+        scope2LocationKgCO2e: results.scope2LocationTotal,
+        scope2MarketKgCO2e: results.scope2MarketTotal
+      }),
+      facilitySummaries: summarizeFacilityResults(boundary, results.facilityBreakdown)
+    });
+
+    reportData.inventoryBoundary.organizationalBoundarySummary = reportDraft.organizationalBoundarySummary;
+    reportData.inventoryBoundary.operationalBoundarySummary = reportDraft.operationalBoundarySummary;
+    reportData.inventoryBoundary.excludedActivities = parseMultilineText(reportDraft.excludedActivitiesText);
+    reportData.methodology.calculationMethodSummary = reportDraft.methodologySummary;
+    reportData.methodology.emissionFactorSources = parseMultilineText(reportDraft.emissionFactorSourcesText);
+    reportData.baseYearPolicy.baseYearSelectionReason = reportDraft.baseYearSelectionReason;
+    reportData.baseYearPolicy.recalculationPolicy = reportDraft.recalculationPolicy;
+    reportData.verification.status = reportDraft.verificationStatus;
+    reportData.verification.verifierName = reportDraft.verifierName || undefined;
+    reportData.verification.verificationOpinion = reportDraft.verificationOpinion || undefined;
+    reportData.contact.department = reportDraft.contactDepartment || undefined;
+    reportData.contact.name = reportDraft.contactName;
+    reportData.contact.email = reportDraft.contactEmail || undefined;
+    reportData.contact.phone = reportDraft.contactPhone || undefined;
+
+    return {
+      reportData,
+      checklist: buildChapter9Checklist(reportData),
+      html: renderChapter9ReportHtml(reportData)
+    };
+  }, [boundaryApproach, companyName, facilities, reportDraft, reportingYear, reportSourceResults, results, sources]);
 
   return (
     <main className="app-shell">
@@ -424,7 +572,7 @@ function App() {
             return (
               <a key={item.label} className={`${index === 0 ? "active" : ""} ${disabled ? "locked" : ""}`}>
                 <span>{item.label}</span>
-                {disabled && <small>잠김</small>}
+                {disabled && <small>잠금</small>}
               </a>
             );
           })}
@@ -448,8 +596,17 @@ function App() {
               <p className="eyebrow">Project</p>
               <h2>로컬 프로젝트 저장</h2>
               <p className="project-meta">
-                상태: {isLoadingProject ? "불러오는 중" : saveState === "saving" ? "저장 중" : saveState === "saved" ? "저장됨" : saveState === "error" ? "오류" : "대기"}
-                {" · "}최근 저장: {formatTimestamp(lastSavedAt)}
+                상태:{" "}
+                {isLoadingProject
+                  ? "불러오는 중"
+                  : saveState === "saving"
+                    ? "저장 중"
+                    : saveState === "saved"
+                      ? "저장됨"
+                      : saveState === "error"
+                        ? "오류"
+                        : "대기"}
+                {" · "}최근 저장 {formatTimestamp(lastSavedAt)}
               </p>
               {saveError && <p className="error-copy">{saveError}</p>}
             </div>
@@ -487,7 +644,7 @@ function App() {
             </label>
             <label>
               조직 경계
-              <select value={boundaryApproach} onChange={(event) => setBoundaryApproach(event.target.value as typeof boundaryApproach)}>
+              <select value={boundaryApproach} onChange={(event) => setBoundaryApproach(event.target.value as BoundaryApproach)}>
                 <option value="operational">운영 통제</option>
                 <option value="financial">재무 통제</option>
                 <option value="equity">지분율</option>
@@ -500,7 +657,7 @@ function App() {
           <div>
             <p className="eyebrow">License</p>
             <h2>라이선스 확인</h2>
-            <p>발급받은 라이선스 키를 입력하면 앱 사용 가능 상태를 서버에서 확인합니다.</p>
+            <p>발급받은 라이선스 키를 입력하면 사용 가능 상태를 서버에서 확인합니다.</p>
           </div>
 
           <form className="license-form" onSubmit={handleLicenseSubmit}>
@@ -530,16 +687,16 @@ function App() {
           <div>
             <p className="eyebrow">Data policy</p>
             <h2>배출 데이터는 로컬에만 저장</h2>
-            <p>연료 사용량, 전력 사용량, 시설 정보, 배출원 정보, 계산 결과는 데스크탑의 로컬 SQLite에 저장됩니다.</p>
+            <p>연료 사용량, 전력 사용량, 시설 정보, 배출원 정보, 계산 결과는 로컬 SQLite에 저장됩니다.</p>
           </div>
           <div className="privacy-grid">
             <article>
               <h3>로컬 SQLite 저장</h3>
-              <p>프로젝트명, 회사명, 보고연도, 시설, 배출원, 월별 활동량, 계산용 설정값을 자동 저장합니다.</p>
+              <p>프로젝트명, 회사명, 보고연도, 시설, 배출원, 상세 전력 mix, 보고서 초안을 앱 내부 DB에 저장합니다.</p>
             </article>
             <article>
-              <h3>외부로 전송됨</h3>
-              <p>라이선스 확인용 `licenseKey`, `appVersion`, `deviceIdHash`와 업데이트 확인 요청만 전송됩니다.</p>
+              <h3>외부 전송 항목</h3>
+              <p>라이선스 확인용 `licenseKey`, `appVersion`, `deviceIdHash`와 업데이트 확인 요청만 전송합니다.</p>
             </article>
             <article>
               <h3>라이선스 확인 API</h3>
@@ -555,13 +712,14 @@ function App() {
         <section className={`feature-lock-panel ${licenseGate.canUseCoreFeatures ? "unlocked" : "locked"}`}>
           <div>
             <p className="eyebrow">Access control</p>
-            <h2>{licenseGate.canUseCoreFeatures ? "핵심 기능 사용 가능" : "핵심 기능 잠김"}</h2>
+            <h2>{licenseGate.canUseCoreFeatures ? "핵심 기능 사용 가능" : "핵심 기능 잠금"}</h2>
             <p>{licenseGate.reasonText}</p>
           </div>
           <div className="feature-grid">
             <span className={licenseGate.canCreateProject ? "enabled" : "disabled"}>프로젝트 생성</span>
             <span className={licenseGate.canGenerateReport ? "enabled" : "disabled"}>보고서 생성</span>
             <span className={licenseGate.canEditEmissionFactors ? "enabled" : "disabled"}>배출계수 편집</span>
+            <span className="enabled">로컬 저장</span>
           </div>
         </section>
 
@@ -586,7 +744,7 @@ function App() {
               <strong>{formatKgCO2eAsTCO2e(results.scope2MarketTotal)}</strong>
             </article>
             <article>
-              <span>총 배출량 Market 기준</span>
+              <span>총배출량 Market 기준</span>
               <strong>{formatKgCO2eAsTCO2e(results.totalEmissionsMarket)}</strong>
             </article>
           </div>
@@ -715,7 +873,7 @@ function App() {
                           <p className="eyebrow">Scope 2 market-based</p>
                           <h3>전력 계약 수단 상세 입력</h3>
                         </div>
-                        <p>Location-based는 총 사용량으로 계산하고, Market-based는 아래 power mix를 우선 반영합니다.</p>
+                        <p>Location-based는 총 사용량으로 계산하고, Market-based는 아래 power mix 입력을 우선 반영합니다.</p>
                       </div>
 
                       <div className="mix-toggle-grid">
@@ -727,7 +885,7 @@ function App() {
                                 type="checkbox"
                                 checked={enabled}
                                 disabled={!licenseGate.canUseCoreFeatures}
-                                onChange={(event) => togglePowerMixSection(source.id, option.key, event.target.checked, source.unit)}
+                                onChange={(event) => togglePowerMixSection(source.id, option.key, event.target.checked)}
                               />
                               <span>{option.label}</span>
                             </label>
@@ -801,7 +959,7 @@ function App() {
                                   }))
                                 }
                               />
-                              <span>품질 기준 충족</span>
+                              <span>인정 기준 충족</span>
                             </label>
                             <label>
                               인증서 번호
@@ -827,7 +985,9 @@ function App() {
                                 type="number"
                                 min="0"
                                 value={getAnnualMixQuantity(source.powerMix.greenPremium.quantity)}
-                                onChange={(event) => updatePowerMixAnnualQuantity(source.id, "greenPremium", Number(event.target.value))}
+                                onChange={(event) =>
+                                  updatePowerMixAnnualQuantity(source.id, "greenPremium", Number(event.target.value))
+                                }
                               />
                             </label>
                             <label className="checkbox-row">
@@ -841,7 +1001,7 @@ function App() {
                                   }))
                                 }
                               />
-                              <span>재생에너지 계약수단으로 처리</span>
+                              <span>재생에너지 계약 수단으로 처리</span>
                             </label>
                             <label className="checkbox-row">
                               <input
@@ -883,7 +1043,9 @@ function App() {
                                 type="number"
                                 min="0"
                                 value={getAnnualMixQuantity(source.powerMix.conventional.quantity)}
-                                onChange={(event) => updatePowerMixAnnualQuantity(source.id, "conventional", Number(event.target.value))}
+                                onChange={(event) =>
+                                  updatePowerMixAnnualQuantity(source.id, "conventional", Number(event.target.value))
+                                }
                               />
                             </label>
                             <label>
@@ -928,10 +1090,176 @@ function App() {
           </div>
         </section>
 
+        <section className={`report-panel ${licenseGate.canGenerateReport ? "" : "locked-panel"}`}>
+          <div className="results-header">
+            <div>
+              <p className="eyebrow">Report draft</p>
+              <h2>9장 기준 보고서 입력 및 HTML 미리보기</h2>
+              <p className="project-meta">이번 단계에서는 보고서 입력값 수집과 HTML 미리보기까지 연결했습니다. 다음 단계가 Word 생성입니다.</p>
+            </div>
+          </div>
+
+          {!licenseGate.canGenerateReport && <p className="lock-copy">라이선스 인증 후 보고서 생성 기능을 사용할 수 있습니다.</p>}
+
+          <div className="report-layout">
+            <div className="report-editor">
+              <div className="report-form-grid">
+                <label>
+                  보고기간
+                  <input
+                    value={reportDraft.reportingPeriod}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("reportingPeriod", event.target.value)}
+                  />
+                </label>
+                <label>
+                  담당 부서
+                  <input
+                    value={reportDraft.contactDepartment}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("contactDepartment", event.target.value)}
+                  />
+                </label>
+                <label>
+                  담당자명
+                  <input
+                    value={reportDraft.contactName}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("contactName", event.target.value)}
+                  />
+                </label>
+                <label>
+                  담당자 이메일
+                  <input
+                    value={reportDraft.contactEmail}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("contactEmail", event.target.value)}
+                  />
+                </label>
+                <label>
+                  담당자 연락처
+                  <input
+                    value={reportDraft.contactPhone}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("contactPhone", event.target.value)}
+                  />
+                </label>
+                <label>
+                  검증 상태
+                  <select
+                    value={reportDraft.verificationStatus}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("verificationStatus", event.target.value as DesktopReportDraft["verificationStatus"])}
+                  >
+                    <option value="not_performed">미검증</option>
+                    <option value="internal_review">내부 검토</option>
+                    <option value="external_verification">외부 검증</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="report-form-stack">
+                <label>
+                  조직 경계 요약
+                  <textarea
+                    value={reportDraft.organizationalBoundarySummary}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("organizationalBoundarySummary", event.target.value)}
+                  />
+                </label>
+                <label>
+                  운영 경계 요약
+                  <textarea
+                    value={reportDraft.operationalBoundarySummary}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("operationalBoundarySummary", event.target.value)}
+                  />
+                </label>
+                <label>
+                  제외된 배출원 및 활동
+                  <textarea
+                    value={reportDraft.excludedActivitiesText}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("excludedActivitiesText", event.target.value)}
+                  />
+                </label>
+                <label>
+                  산정 방법론 요약
+                  <textarea
+                    value={reportDraft.methodologySummary}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("methodologySummary", event.target.value)}
+                  />
+                </label>
+                <label>
+                  배출계수 출처
+                  <textarea
+                    value={reportDraft.emissionFactorSourcesText}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("emissionFactorSourcesText", event.target.value)}
+                  />
+                </label>
+                <label>
+                  기준연도 선정 사유
+                  <textarea
+                    value={reportDraft.baseYearSelectionReason}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("baseYearSelectionReason", event.target.value)}
+                  />
+                </label>
+                <label>
+                  재산정 정책
+                  <textarea
+                    value={reportDraft.recalculationPolicy}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("recalculationPolicy", event.target.value)}
+                  />
+                </label>
+                <label>
+                  검증 의견
+                  <textarea
+                    value={reportDraft.verificationOpinion}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("verificationOpinion", event.target.value)}
+                  />
+                </label>
+              </div>
+
+              <div className="report-checklist">
+                {reportChecklist.checklist.map((item) => (
+                  <article key={item.id} className={`check-card-inline ${item.status}`}>
+                    <div>
+                      <strong>{item.label}</strong>
+                      <p>{item.guidance}</p>
+                    </div>
+                    <span>{item.required ? "필수" : "선택"} · {item.status}</span>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="report-preview">
+              <div className="report-preview-header">
+                <div>
+                  <p className="eyebrow">HTML preview</p>
+                  <h3>보고서 초안 미리보기</h3>
+                </div>
+                <div className="preview-meta">
+                  <span>{companyName}</span>
+                  <span>{reportingYear}</span>
+                  <span>{boundaryApproachLabels[boundaryApproach]}</span>
+                  <span>{verificationLabels[reportDraft.verificationStatus]}</span>
+                </div>
+              </div>
+              <iframe className="report-preview-frame" srcDoc={reportChecklist.html} title="GHG report preview" />
+            </div>
+          </div>
+        </section>
+
         <section className="grid">
-          {chapter9GuideTopics.map((topic) => (
-            <article key={topic.id} className="card">
-              <p className="eyebrow">{topic.reportSection}</p>
+          {reportGuideItems.map((topic) => (
+            <article key={topic.title} className="card">
+              <p className="eyebrow">GHG Protocol Chapter 9</p>
               <h3>{topic.title}</h3>
               <p>{topic.summary}</p>
             </article>

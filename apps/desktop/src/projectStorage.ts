@@ -8,6 +8,25 @@ export interface DesktopProjectData {
   boundaryApproach: BoundaryApproach;
   facilities: Facility[];
   sources: EmissionSource[];
+  reportDraft?: DesktopReportDraft;
+}
+
+export interface DesktopReportDraft {
+  reportingPeriod: string;
+  organizationalBoundarySummary: string;
+  operationalBoundarySummary: string;
+  excludedActivitiesText: string;
+  methodologySummary: string;
+  emissionFactorSourcesText: string;
+  recalculationPolicy: string;
+  baseYearSelectionReason: string;
+  verificationStatus: "not_performed" | "internal_review" | "external_verification";
+  verifierName: string;
+  verificationOpinion: string;
+  contactDepartment: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
 }
 
 export interface DesktopProjectEnvelope {
