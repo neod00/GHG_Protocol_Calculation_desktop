@@ -284,7 +284,9 @@ function App() {
   const [isExportingBundle, setIsExportingBundle] = useState(false);
   const [isImportingBundle, setIsImportingBundle] = useState(false);
   const [isExportingReport, setIsExportingReport] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [exportedReportPath, setExportedReportPath] = useState<string | null>(null);
+  const [exportedPdfPath, setExportedPdfPath] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const hydratedRef = useRef(false);
 
@@ -639,6 +641,24 @@ function App() {
       setExportError(error instanceof Error ? error.message : "Word 보고서 저장에 실패했습니다.");
     } finally {
       setIsExportingReport(false);
+    }
+  }
+
+  async function handleExportPdf() {
+    try {
+      setIsExportingPdf(true);
+      setExportError(null);
+      const safeCompanyName = companyName.trim().replace(/[\\/:*?"<>|]/g, "_") || "GHG_Report";
+      const outputPath = await invoke<string>("save_generated_pdf", {
+        fileName: `${safeCompanyName}_${reportingYear}_ghg_report.pdf`,
+        reportData: reportChecklist.reportData
+      });
+
+      setExportedPdfPath(outputPath);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "PDF 보고서 저장에 실패했습니다.");
+    } finally {
+      setIsExportingPdf(false);
     }
   }
 
@@ -1278,6 +1298,9 @@ function App() {
               <p className="project-meta">이번 단계에서는 보고서 입력값 수집과 HTML 미리보기까지 연결했습니다. 다음 단계가 Word 생성입니다.</p>
             </div>
             <div className="button-row">
+              <button type="button" className="ghost-button" disabled={!licenseGate.canGenerateReport || isExportingPdf} onClick={() => void handleExportPdf()}>
+                {isExportingPdf ? "PDF 생성 중" : "PDF 저장"}
+              </button>
               <button type="button" disabled={!licenseGate.canGenerateReport || isExportingReport} onClick={() => void handleExportDocx()}>
                 {isExportingReport ? "Word 생성 중" : "Word 초안 저장"}
               </button>
@@ -1286,6 +1309,7 @@ function App() {
 
           {!licenseGate.canGenerateReport && <p className="lock-copy">라이선스 인증 후 보고서 생성 기능을 사용할 수 있습니다.</p>}
           {exportedReportPath && <p className="project-meta">저장 완료: {exportedReportPath}</p>}
+          {exportedPdfPath && <p className="project-meta">PDF 저장 완료: {exportedPdfPath}</p>}
           {exportError && <p className="error-copy">{exportError}</p>}
 
           <div className="report-layout">

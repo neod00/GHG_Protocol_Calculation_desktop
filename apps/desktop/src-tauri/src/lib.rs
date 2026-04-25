@@ -34,6 +34,47 @@ struct ProjectBundleFile {
     updated_at: String,
 }
 
+fn get_string(value: &serde_json::Value, path: &[&str]) -> String {
+    let mut current = value;
+    for segment in path {
+        current = match current.get(*segment) {
+            Some(next) => next,
+            None => return String::new(),
+        };
+    }
+
+    current.as_str().unwrap_or_default().to_string()
+}
+
+fn get_string_array(value: &serde_json::Value, path: &[&str]) -> Vec<String> {
+    let mut current = value;
+    for segment in path {
+        current = match current.get(*segment) {
+            Some(next) => next,
+            None => return Vec::new(),
+        };
+    }
+
+    current
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(|text| text.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn build_pdf_output_path(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
+    let downloads_dir = downloads_dir(app)?;
+    Ok(downloads_dir.join(sanitize_file_name(file_name)))
+}
+
+fn windows_font_dir() -> PathBuf {
+    PathBuf::from(r"C:\Windows\Fonts")
+}
+
 fn database_path(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = app
         .path()
@@ -229,6 +270,162 @@ fn save_generated_report(app: AppHandle, file_name: String, bytes: Vec<u8>) -> R
 }
 
 #[tauri::command]
+fn save_generated_pdf(app: AppHandle, file_name: String, report_data: serde_json::Value) -> Result<String, String> {
+    let output_path = build_pdf_output_path(&app, &file_name)?;
+    let font_family = genpdf::fonts::from_files(windows_font_dir(), "malgun", None)
+        .map_err(|error| format!("failed to load Windows fonts for PDF generation: {error}"))?;
+
+    let mut doc = genpdf::Document::new(font_family);
+    doc.set_title("온실가스 배출량 보고서");
+    doc.set_minimal_conformance();
+    doc.set_line_spacing(1.25);
+
+    let mut decorator = genpdf::SimplePageDecorator::new();
+    decorator.set_margins(18);
+    doc.set_page_decorator(decorator);
+
+    let cover_title = genpdf::elements::Paragraph::new(format!(
+        "{} 온실가스 배출량 보고서",
+        get_string(&report_data, &["boundary", "companyName"])
+    ));
+    doc.push(genpdf::elements::StyledElement::new(
+        cover_title.aligned(genpdf::Alignment::Center),
+        genpdf::style::Style::new().bold().with_font_size(22),
+    ));
+
+    let meta = genpdf::elements::Paragraph::new(format!(
+        "보고연도 {} | 보고기간 {} | 접근법 {}",
+        get_string(&report_data, &["boundary", "reportingYear"]),
+        get_string(&report_data, &["reportingPeriod"]),
+        get_string(&report_data, &["boundary", "consolidationApproach"])
+    ));
+    doc.push(meta.aligned(genpdf::Alignment::Center));
+    doc.push(genpdf::elements::Break::new(1));
+
+    doc.push(genpdf::elements::StyledElement::new(
+        genpdf::elements::Paragraph::new("배출량 요약"),
+        genpdf::style::Style::new().bold().with_font_size(16),
+    ));
+
+    let summary_items = [
+        ("Scope 1", get_string(&report_data, &["totals", "scope1Tco2e"])),
+        ("Scope 2 Location", get_string(&report_data, &["totals", "scope2LocationTco2e"])),
+        ("Scope 2 Market", get_string(&report_data, &["totals", "scope2MarketTco2e"])),
+        ("총배출량 Location", get_string(&report_data, &["totals", "totalLocationTco2e"])),
+        ("총배출량 Market", get_string(&report_data, &["totals", "totalMarketTco2e"])),
+    ];
+
+    for (label, value) in summary_items {
+        doc.push(genpdf::elements::Paragraph::new(format!("{label}: {value} tCO2e")));
+    }
+
+    doc.push(genpdf::elements::Break::new(1));
+
+    doc.push(genpdf::elements::StyledElement::new(
+        genpdf::elements::Paragraph::new("기업 및 인벤토리 경계"),
+        genpdf::style::Style::new().bold().with_font_size(16),
+    ));
+    doc.push(genpdf::elements::Paragraph::new(format!(
+        "조직 경계: {}",
+        get_string(&report_data, &["inventoryBoundary", "organizationalBoundarySummary"])
+    )));
+    doc.push(genpdf::elements::Paragraph::new(format!(
+        "운영 경계: {}",
+        get_string(&report_data, &["inventoryBoundary", "operationalBoundarySummary"])
+    )));
+    for item in get_string_array(&report_data, &["inventoryBoundary", "excludedActivities"]) {
+        doc.push(genpdf::elements::BulletPoint::new(genpdf::elements::Paragraph::new(item)));
+    }
+
+    doc.push(genpdf::elements::Break::new(1));
+
+    doc.push(genpdf::elements::StyledElement::new(
+        genpdf::elements::Paragraph::new("산정 방법론 및 배출계수"),
+        genpdf::style::Style::new().bold().with_font_size(16),
+    ));
+    doc.push(genpdf::elements::Paragraph::new(get_string(
+        &report_data,
+        &["methodology", "calculationMethodSummary"],
+    )));
+    for item in get_string_array(&report_data, &["methodology", "emissionFactorSources"]) {
+        doc.push(genpdf::elements::BulletPoint::new(genpdf::elements::Paragraph::new(format!("배출계수 출처: {item}"))));
+    }
+    for item in get_string_array(&report_data, &["methodology", "dataQualityNotes"]) {
+        doc.push(genpdf::elements::BulletPoint::new(genpdf::elements::Paragraph::new(format!("데이터 품질: {item}"))));
+    }
+    for item in get_string_array(&report_data, &["methodology", "uncertaintyNotes"]) {
+        doc.push(genpdf::elements::BulletPoint::new(genpdf::elements::Paragraph::new(format!("불확실성: {item}"))));
+    }
+
+    doc.push(genpdf::elements::Break::new(1));
+
+    doc.push(genpdf::elements::StyledElement::new(
+        genpdf::elements::Paragraph::new("기준연도 및 재산정 정책"),
+        genpdf::style::Style::new().bold().with_font_size(16),
+    ));
+    doc.push(genpdf::elements::Paragraph::new(format!(
+        "기준연도 선정 사유: {}",
+        get_string(&report_data, &["baseYearPolicy", "baseYearSelectionReason"])
+    )));
+    doc.push(genpdf::elements::Paragraph::new(format!(
+        "재산정 정책: {}",
+        get_string(&report_data, &["baseYearPolicy", "recalculationPolicy"])
+    )));
+
+    doc.push(genpdf::elements::Break::new(1));
+
+    doc.push(genpdf::elements::StyledElement::new(
+        genpdf::elements::Paragraph::new("검증 및 담당자"),
+        genpdf::style::Style::new().bold().with_font_size(16),
+    ));
+    doc.push(genpdf::elements::Paragraph::new(format!(
+        "검증 상태: {}",
+        get_string(&report_data, &["verification", "status"])
+    )));
+    doc.push(genpdf::elements::Paragraph::new(format!(
+        "검증 기준: {}",
+        get_string(&report_data, &["verification", "verificationStandard"])
+    )));
+    doc.push(genpdf::elements::Paragraph::new(format!(
+        "검증 의견: {}",
+        get_string(&report_data, &["verification", "verificationOpinion"])
+    )));
+    doc.push(genpdf::elements::Paragraph::new(format!(
+        "담당자: {} {}",
+        get_string(&report_data, &["contact", "department"]),
+        get_string(&report_data, &["contact", "name"])
+    )));
+
+    doc.push(genpdf::elements::PageBreak::new());
+
+    doc.push(genpdf::elements::StyledElement::new(
+        genpdf::elements::Paragraph::new("부록 A. 배출원 상세"),
+        genpdf::style::Style::new().bold().with_font_size(16),
+    ));
+
+    if let Some(items) = report_data.get("sources").and_then(|value| value.as_array()) {
+        for item in items {
+            doc.push(genpdf::elements::Paragraph::new(format!(
+                "{} | {} | {} | {} | {} tCO2e",
+                item.get("description").and_then(|v| v.as_str()).unwrap_or_default(),
+                item.get("category").and_then(|v| v.as_str()).unwrap_or_default(),
+                item.get("fuelType").and_then(|v| v.as_str()).unwrap_or_default(),
+                item.get("unit").and_then(|v| v.as_str()).unwrap_or_default(),
+                item.get("emissionsTCO2e").and_then(|v| v.as_f64()).unwrap_or_default()
+            )));
+        }
+    }
+
+    doc.render_to_file(&output_path)
+        .map_err(|error| format!("failed to render PDF file: {error}"))?;
+
+    output_path
+        .to_str()
+        .map(|value| value.to_string())
+        .ok_or_else(|| "failed to convert PDF path to string".to_string())
+}
+
+#[tauri::command]
 fn export_project_bundle(app: AppHandle, project: ProjectEnvelope) -> Result<String, String> {
     let downloads_dir = downloads_dir(&app)?;
     let payload_json =
@@ -308,6 +505,7 @@ pub fn run() {
             list_projects,
             load_last_project,
             save_generated_report,
+            save_generated_pdf,
             export_project_bundle,
             list_project_bundle_files,
             import_project_bundle
