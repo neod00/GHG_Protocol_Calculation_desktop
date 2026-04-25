@@ -18,15 +18,22 @@ export interface DesktopReportDraft {
   excludedActivitiesText: string;
   methodologySummary: string;
   emissionFactorSourcesText: string;
+  dataQualityNotesText: string;
+  uncertaintyNotesText: string;
   recalculationPolicy: string;
   baseYearSelectionReason: string;
   verificationStatus: "not_performed" | "internal_review" | "external_verification";
   verifierName: string;
+  verificationStandard: string;
   verificationOpinion: string;
   contactDepartment: string;
   contactName: string;
   contactEmail: string;
   contactPhone: string;
+  optionalIntensityMetricsText: string;
+  optionalReductionInitiativesText: string;
+  optionalEnergyProgramsText: string;
+  optionalOtherDisclosuresText: string;
 }
 
 export interface DesktopProjectEnvelope {

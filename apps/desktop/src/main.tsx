@@ -153,15 +153,22 @@ function createDefaultReportDraft(year: string, companyName: string): DesktopRep
     excludedActivitiesText: "현재 제외된 배출원 없음",
     methodologySummary: "활동자료 x 배출계수 방식으로 산정하며, Scope 2는 location-based와 market-based를 함께 제시합니다.",
     emissionFactorSourcesText: "국가 고시 배출계수\nGHG Protocol Scope 2 Guidance\n내부 관리 배출계수",
+    dataQualityNotesText: "활동자료 출처와 검토자 기록 유지\n입력값 변경 시 저장 이력 확인",
+    uncertaintyNotesText: "현장 계량값과 내부 정산값 차이가 있으면 별도 메모 필요",
     recalculationPolicy: "조직 경계 변경, 산정 방법 변경, 중대한 데이터 정정이 발생하면 기준연도 재산정 여부를 검토합니다.",
     baseYearSelectionReason: "현재 보고연도를 기준연도로 설정한 초안입니다.",
     verificationStatus: "not_performed",
     verifierName: "",
+    verificationStandard: "",
     verificationOpinion: "",
     contactDepartment: "환경안전팀",
     contactName: "",
     contactEmail: "",
-    contactPhone: ""
+    contactPhone: "",
+    optionalIntensityMetricsText: "",
+    optionalReductionInitiativesText: "",
+    optionalEnergyProgramsText: "",
+    optionalOtherDisclosuresText: ""
   };
 }
 
@@ -223,6 +230,31 @@ function parseMultilineText(value: string): string[] {
     .split(/\r?\n/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function buildOptionalDisclosures(reportDraft: DesktopReportDraft) {
+  return [
+    ...parseMultilineText(reportDraft.optionalIntensityMetricsText).map((description) => ({
+      category: "intensity_metrics" as const,
+      title: "비율 지표",
+      description
+    })),
+    ...parseMultilineText(reportDraft.optionalReductionInitiativesText).map((description) => ({
+      category: "reduction_initiatives" as const,
+      title: "감축 프로그램",
+      description
+    })),
+    ...parseMultilineText(reportDraft.optionalEnergyProgramsText).map((description) => ({
+      category: "energy_contracts" as const,
+      title: "에너지 계약 및 제도",
+      description
+    })),
+    ...parseMultilineText(reportDraft.optionalOtherDisclosuresText).map((description) => ({
+      category: "other" as const,
+      title: "기타 선택 공시",
+      description
+    }))
+  ];
 }
 
 function App() {
@@ -658,15 +690,19 @@ function App() {
     reportData.inventoryBoundary.excludedActivities = parseMultilineText(reportDraft.excludedActivitiesText);
     reportData.methodology.calculationMethodSummary = reportDraft.methodologySummary;
     reportData.methodology.emissionFactorSources = parseMultilineText(reportDraft.emissionFactorSourcesText);
+    reportData.methodology.dataQualityNotes = parseMultilineText(reportDraft.dataQualityNotesText);
+    reportData.methodology.uncertaintyNotes = parseMultilineText(reportDraft.uncertaintyNotesText);
     reportData.baseYearPolicy.baseYearSelectionReason = reportDraft.baseYearSelectionReason;
     reportData.baseYearPolicy.recalculationPolicy = reportDraft.recalculationPolicy;
     reportData.verification.status = reportDraft.verificationStatus;
     reportData.verification.verifierName = reportDraft.verifierName || undefined;
+    reportData.verification.verificationStandard = reportDraft.verificationStandard || undefined;
     reportData.verification.verificationOpinion = reportDraft.verificationOpinion || undefined;
     reportData.contact.department = reportDraft.contactDepartment || undefined;
     reportData.contact.name = reportDraft.contactName;
     reportData.contact.email = reportDraft.contactEmail || undefined;
     reportData.contact.phone = reportDraft.contactPhone || undefined;
+    reportData.optionalDisclosures = buildOptionalDisclosures(reportDraft);
 
     return {
       reportData,
@@ -1307,6 +1343,22 @@ function App() {
                     <option value="external_verification">외부 검증</option>
                   </select>
                 </label>
+                <label>
+                  검증기관/검토자
+                  <input
+                    value={reportDraft.verifierName}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("verifierName", event.target.value)}
+                  />
+                </label>
+                <label>
+                  검증 기준
+                  <input
+                    value={reportDraft.verificationStandard}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("verificationStandard", event.target.value)}
+                  />
+                </label>
               </div>
 
               <div className="report-form-stack">
@@ -1351,6 +1403,22 @@ function App() {
                   />
                 </label>
                 <label>
+                  데이터 품질 메모
+                  <textarea
+                    value={reportDraft.dataQualityNotesText}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("dataQualityNotesText", event.target.value)}
+                  />
+                </label>
+                <label>
+                  불확실성 메모
+                  <textarea
+                    value={reportDraft.uncertaintyNotesText}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("uncertaintyNotesText", event.target.value)}
+                  />
+                </label>
+                <label>
                   기준연도 선정 사유
                   <textarea
                     value={reportDraft.baseYearSelectionReason}
@@ -1372,6 +1440,38 @@ function App() {
                     value={reportDraft.verificationOpinion}
                     disabled={!licenseGate.canGenerateReport}
                     onChange={(event) => updateReportDraft("verificationOpinion", event.target.value)}
+                  />
+                </label>
+                <label>
+                  선택 공시 - 비율 지표
+                  <textarea
+                    value={reportDraft.optionalIntensityMetricsText}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("optionalIntensityMetricsText", event.target.value)}
+                  />
+                </label>
+                <label>
+                  선택 공시 - 감축 프로그램
+                  <textarea
+                    value={reportDraft.optionalReductionInitiativesText}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("optionalReductionInitiativesText", event.target.value)}
+                  />
+                </label>
+                <label>
+                  선택 공시 - 에너지 계약/제도
+                  <textarea
+                    value={reportDraft.optionalEnergyProgramsText}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("optionalEnergyProgramsText", event.target.value)}
+                  />
+                </label>
+                <label>
+                  선택 공시 - 기타
+                  <textarea
+                    value={reportDraft.optionalOtherDisclosuresText}
+                    disabled={!licenseGate.canGenerateReport}
+                    onChange={(event) => updateReportDraft("optionalOtherDisclosuresText", event.target.value)}
                   />
                 </label>
               </div>

@@ -83,7 +83,14 @@ export interface FacilityReportSummary {
   scope2MarketTco2e: number;
 }
 
+export type OptionalDisclosureCategory =
+  | "intensity_metrics"
+  | "reduction_initiatives"
+  | "energy_contracts"
+  | "other";
+
 export interface OptionalDisclosureItem {
+  category: OptionalDisclosureCategory;
   title: string;
   description: string;
 }
@@ -102,6 +109,10 @@ export interface Chapter9ReportData {
   optionalDisclosures?: OptionalDisclosureItem[];
 }
 
+function hasOptionalDisclosure(data: Chapter9ReportData, category: OptionalDisclosureCategory): boolean {
+  return Boolean(data.optionalDisclosures?.some((item) => item.category === category));
+}
+
 function getChecklistStatus(complete: boolean, required: boolean): ReportSectionStatus {
   if (complete) return "complete";
   return required ? "missing" : "partial";
@@ -118,14 +129,13 @@ function hasItems<T>(value: T[] | undefined): boolean {
 export function buildChapter9Checklist(data: Chapter9ReportData): ReportChecklistItem[] {
   const checklist: Array<Omit<ReportChecklistItem, "status">> = [
     {
-      id: "company",
-      label: "기업 및 인벤토리 경계",
+      id: "organizationalBoundary",
+      label: "기업 및 조직 경계",
       required: true,
       complete:
         hasText(data.boundary.companyName) &&
-        hasText(data.inventoryBoundary.organizationalBoundarySummary) &&
-        hasText(data.inventoryBoundary.operationalBoundarySummary),
-      guidance: "회사명, 조직 경계, 운영 경계, 포함 범위를 보고서에 명확히 적어야 합니다."
+        hasText(data.inventoryBoundary.organizationalBoundarySummary),
+      guidance: "회사명과 조직 경계 설명을 보고서에 명확히 적어야 합니다."
     },
     {
       id: "approach",
@@ -135,6 +145,15 @@ export function buildChapter9Checklist(data: Chapter9ReportData): ReportChecklis
       guidance: "운영 통제, 재무 통제, 지분율 중 적용한 접근법을 명시해야 합니다."
     },
     {
+      id: "operationalBoundary",
+      label: "운영 경계 및 포함 범위",
+      required: true,
+      complete:
+        hasText(data.inventoryBoundary.operationalBoundarySummary) &&
+        hasItems(data.inventoryBoundary.includedScopes),
+      guidance: "포함한 Scope와 운영 경계 설명을 함께 제시해야 합니다."
+    },
+    {
       id: "period",
       label: "보고 기간",
       required: true,
@@ -142,7 +161,7 @@ export function buildChapter9Checklist(data: Chapter9ReportData): ReportChecklis
       guidance: "보고연도와 실제 보고기간을 함께 제시해야 합니다."
     },
     {
-      id: "scope12",
+      id: "scopeTotals",
       label: "Scope 1 및 Scope 2 배출량",
       required: true,
       complete:
@@ -150,6 +169,13 @@ export function buildChapter9Checklist(data: Chapter9ReportData): ReportChecklis
         data.totals.totalLocationTco2e >= 0 &&
         data.totals.totalMarketTco2e >= 0,
       guidance: "Scope 1, Scope 2 location-based, Scope 2 market-based 총량을 모두 제시해야 합니다."
+    },
+    {
+      id: "sourceInventory",
+      label: "배출원 목록 및 배출량 상세",
+      required: true,
+      complete: hasItems(data.sources),
+      guidance: "배출원명, 활동자료, 연료/에너지, 결과값을 추적 가능하게 남겨야 합니다."
     },
     {
       id: "methodology",
@@ -168,6 +194,20 @@ export function buildChapter9Checklist(data: Chapter9ReportData): ReportChecklis
       guidance: "사용한 배출계수 문서와 데이터 출처를 구체적으로 적어야 합니다."
     },
     {
+      id: "dataQuality",
+      label: "데이터 품질 메모",
+      required: true,
+      complete: hasItems(data.methodology.dataQualityNotes),
+      guidance: "자료 출처, 내부 검토 방식, 품질 관리 메모를 남겨야 합니다."
+    },
+    {
+      id: "uncertainty",
+      label: "불확실성 및 한계",
+      required: true,
+      complete: hasItems(data.methodology.uncertaintyNotes),
+      guidance: "계량 한계, 추정 사용, 데이터 불일치 등 불확실성을 설명해야 합니다."
+    },
+    {
       id: "excluded",
       label: "제외된 배출원 및 활동",
       required: true,
@@ -175,26 +215,41 @@ export function buildChapter9Checklist(data: Chapter9ReportData): ReportChecklis
       guidance: "제외 항목이 없더라도 '없음' 또는 판단 근거를 남겨야 합니다."
     },
     {
-      id: "baseYear",
-      label: "기준연도 및 재산정 정책",
+      id: "baseYearSelection",
+      label: "기준연도 선정 사유",
       required: true,
-      complete:
-        hasText(data.baseYearPolicy.recalculationPolicy) &&
-        hasText(data.baseYearPolicy.baseYearSelectionReason),
-      guidance: "기준연도 선정 사유와 재산정 정책을 함께 설명해야 합니다."
+      complete: hasText(data.baseYearPolicy.baseYearSelectionReason),
+      guidance: "기준연도 선택 배경과 선택 논리를 남겨야 합니다."
     },
     {
-      id: "verification",
-      label: "검증 정보",
+      id: "recalculationPolicy",
+      label: "재산정 정책",
+      required: true,
+      complete: hasText(data.baseYearPolicy.recalculationPolicy),
+      guidance: "구조 변경이나 중대한 정정 시 재산정 기준을 제시해야 합니다."
+    },
+    {
+      id: "verificationStatus",
+      label: "검증 상태",
       required: true,
       complete: hasText(data.verification.status),
       guidance: "외부 검증이 없더라도 검증 여부와 상태는 표시해야 합니다."
     },
     {
+      id: "verificationStandard",
+      label: "검증 기준 및 검토자",
+      required: false,
+      complete:
+        hasText(data.verification.verifierName) ||
+        hasText(data.verification.verificationStandard) ||
+        hasText(data.verification.verificationOpinion),
+      guidance: "검토자, 검증 기준, 검증 의견은 선택 항목이지만 대외 문서 품질을 높여줍니다."
+    },
+    {
       id: "contact",
       label: "담당자 정보",
       required: true,
-      complete: hasText(data.contact.name),
+      complete: hasText(data.contact.name) && (hasText(data.contact.email) || hasText(data.contact.phone)),
       guidance: "담당자 이름과 최소 한 가지 연락수단을 제공하는 것이 좋습니다."
     },
     {
@@ -205,11 +260,32 @@ export function buildChapter9Checklist(data: Chapter9ReportData): ReportChecklis
       guidance: "선택 항목이지만 실무 보고서 품질을 크게 높여줍니다."
     },
     {
-      id: "optionalDisclosures",
-      label: "선택 공시 항목",
+      id: "optionalIntensityMetrics",
+      label: "선택 공시 - 비율 지표",
       required: false,
-      complete: hasItems(data.optionalDisclosures),
-      guidance: "검증 의견, 특이사항, 비율 지표 등 추가 공시를 넣을 수 있습니다."
+      complete: hasOptionalDisclosure(data, "intensity_metrics"),
+      guidance: "생산량, 매출, 면적 등과 연계한 비율 지표를 별도로 공시할 수 있습니다."
+    },
+    {
+      id: "optionalReductionInitiatives",
+      label: "선택 공시 - 감축 프로그램",
+      required: false,
+      complete: hasOptionalDisclosure(data, "reduction_initiatives"),
+      guidance: "감축 활동, 절감 프로젝트, 내부 프로그램을 선택적으로 제시할 수 있습니다."
+    },
+    {
+      id: "optionalEnergyContracts",
+      label: "선택 공시 - 에너지 계약 및 제도",
+      required: false,
+      complete: hasOptionalDisclosure(data, "energy_contracts"),
+      guidance: "PPA, REC, 녹색프리미엄 등 계약 구조를 선택 항목으로 설명할 수 있습니다."
+    },
+    {
+      id: "optionalOtherDisclosures",
+      label: "선택 공시 - 기타",
+      required: false,
+      complete: hasOptionalDisclosure(data, "other"),
+      guidance: "기타 특이사항, 외부 프로그램 참여, 설명 메모를 추가 공시할 수 있습니다."
     }
   ];
 
@@ -585,6 +661,16 @@ export function renderChapter9ReportHtml(data: Chapter9ReportData): string {
             <ul>${renderList(data.methodology.emissionFactorSources)}</ul>
           </div>
         </div>
+        <div class="section-grid" style="margin-top:14px;">
+          <div class="info-card">
+            <div class="label">데이터 품질 메모</div>
+            <ul>${renderList(data.methodology.dataQualityNotes || [])}</ul>
+          </div>
+          <div class="info-card">
+            <div class="label">불확실성 및 한계</div>
+            <ul>${renderList(data.methodology.uncertaintyNotes || [])}</ul>
+          </div>
+        </div>
       </section>
 
       <section class="section">
@@ -624,6 +710,7 @@ export function renderChapter9ReportHtml(data: Chapter9ReportData): string {
           <div class="info-card">
             <div class="label">검증 상태</div>
             <p>${escapeHtml(data.verification.status)}</p>
+            <p>${escapeHtml(data.verification.verificationStandard || "")}</p>
             <p>${escapeHtml(data.verification.verificationOpinion || "")}</p>
           </div>
           <div class="info-card">
@@ -935,6 +1022,14 @@ export async function renderChapter9ReportDocx(data: Chapter9ReportData): Promis
           bodyParagraph(data.methodology.calculationMethodSummary),
           paragraph("배출계수 출처", { bold: true }),
           ...data.methodology.emissionFactorSources.map((item) => bulletParagraph(item)),
+          paragraph("데이터 품질 메모", { bold: true }),
+          ...((data.methodology.dataQualityNotes?.length || 0) > 0
+            ? data.methodology.dataQualityNotes!.map((item) => bulletParagraph(item))
+            : [bulletParagraph("별도 메모 없음")]),
+          paragraph("불확실성 및 한계", { bold: true }),
+          ...((data.methodology.uncertaintyNotes?.length || 0) > 0
+            ? data.methodology.uncertaintyNotes!.map((item) => bulletParagraph(item))
+            : [bulletParagraph("별도 메모 없음")]),
 
           ...sectionHeading("기준연도 및 재산정 정책"),
           keyValueTable([
@@ -954,6 +1049,7 @@ export async function renderChapter9ReportDocx(data: Chapter9ReportData): Promis
           keyValueTable([
             ["검증 상태", data.verification.status],
             ["검증기관/검토자", data.verification.verifierName || ""],
+            ["검증 기준", data.verification.verificationStandard || ""],
             ["검증 의견", data.verification.verificationOpinion || ""],
             ["담당 부서", data.contact.department || ""],
             ["담당자", data.contact.name],
