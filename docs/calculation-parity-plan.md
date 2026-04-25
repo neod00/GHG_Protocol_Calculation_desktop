@@ -17,10 +17,9 @@ The desktop app must follow the existing web app calculation behavior. It is not
   - Green Premium quantity x 0 or supplier factor only when treated as renewable
   - Conventional or unallocated quantity x residual mix factor, falling back to grid factor
 
-## Next Required Migration Step
+## Migrated Factor Data
 
-The current core package contains the calculation algorithm and representative Scope 1/2 factor data.
-The next step is to migrate the full existing web app factor set for:
+The desktop core now imports the existing web app's Scope 1/2 type and factor files:
 
 - `STATIONARY_FUELS`
 - `MOBILE_FUELS`
@@ -30,4 +29,8 @@ The next step is to migrate the full existing web app factor set for:
 - `SCOPE2_FACTORS_BY_REGION`
 - `SCOPE2_ENERGY_SOURCES`
 
-The target is deterministic parity with the deployed web app, not a reduced calculator.
+## Next Required Migration Step
+
+Wire the desktop UI and local project storage to this shared core so entered data uses the same source categories, units, factor names, power mix fields, and consolidation behavior as the web app.
+
+The target remains deterministic parity with the deployed web app, not a reduced calculator.
