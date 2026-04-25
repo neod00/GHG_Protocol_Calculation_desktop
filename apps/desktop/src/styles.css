@@ -198,6 +198,35 @@ input:focus, select:focus {
   border-color: #d9e1ec;
   color: #7b8798;
 }
+.privacy-panel {
+  display: grid;
+  gap: 18px;
+  background: #f6fbf8;
+  border: 1px solid #cfe6d7;
+  border-radius: 10px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.privacy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.privacy-grid article {
+  background: white;
+  border: 1px solid #dce8df;
+  border-radius: 8px;
+  padding: 16px;
+}
+.privacy-grid h3 {
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+.privacy-grid p {
+  color: #526176;
+  line-height: 1.55;
+  margin-bottom: 0;
+}
 .results-panel, .calculator-panel {
   background: white;
   border: 1px solid #e1e6ef;
@@ -342,6 +371,6 @@ input:focus, select:focus {
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .license-panel, .service-panel, .feature-grid, .metric-grid, .grid { grid-template-columns: 1fr; }
+  .license-panel, .privacy-grid, .service-panel, .feature-grid, .metric-grid, .grid { grid-template-columns: 1fr; }
   .results-header { display: grid; }
 }

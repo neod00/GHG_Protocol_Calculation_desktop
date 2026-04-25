@@ -244,6 +244,34 @@ function App() {
           </form>
         </section>
 
+        <section className="privacy-panel">
+          <div>
+            <p className="eyebrow">Data policy</p>
+            <h2>배출 데이터는 로컬에만 저장</h2>
+            <p>
+              연료 사용량, 전력 사용량, 시설 정보, 배출원 정보, 계산 결과, 보고서 원문 데이터는 현재 앱에서 외부 서버로 전송하지 않습니다.
+            </p>
+          </div>
+          <div className="privacy-grid">
+            <article>
+              <h3>외부로 전송되지 않음</h3>
+              <p>연료사용량, 에너지사용량, 시설, 배출원, 계산결과, 보고서 데이터</p>
+            </article>
+            <article>
+              <h3>외부로 전송됨</h3>
+              <p>라이선스 키, 앱 버전, 기기 식별 해시, 업데이트 확인 요청</p>
+            </article>
+            <article>
+              <h3>라이선스 확인 API</h3>
+              <p>{LICENSE_VERIFY_URL}</p>
+            </article>
+            <article>
+              <h3>업데이트 확인 API</h3>
+              <p>{UPDATE_METADATA_URL}</p>
+            </article>
+          </div>
+        </section>
+
         <section className={`feature-lock-panel ${licenseGate.canUseCoreFeatures ? "unlocked" : "locked"}`}>
           <div>
             <p className="eyebrow">Access control</p>
@@ -324,10 +352,10 @@ function App() {
               const factorOptions = getFactorsForCategory(source.category, DEFAULT_SCOPE12_FACTORS);
               const selectedFactor = factorOptions.find((item) => item.name === source.fuelType);
               const units = selectedFactor && "units" in selectedFactor ? selectedFactor.units : [source.unit];
-              const sourceResult = calculateScope12Inventory({ sources: [source], facilities, boundaryApproach }).sourceFormulas[source.id];
+              const sourceInventory = calculateScope12Inventory({ sources: [source], facilities, boundaryApproach });
+              const sourceFormula = sourceInventory.sourceFormulas[source.id];
               const scope = getScopeForCategory(source.category);
-              const facilityResult = calculateScope12Inventory({ sources: [source], facilities, boundaryApproach });
-              const rowEmission = scope === "scope2" ? facilityResult.scope2MarketTotal : facilityResult.scope1Total;
+              const rowEmission = scope === "scope2" ? sourceInventory.scope2MarketTotal : sourceInventory.scope1Total;
 
               return (
                 <div className="source-row" key={source.id}>
@@ -389,7 +417,7 @@ function App() {
                     disabled={!licenseGate.canUseCoreFeatures}
                     onChange={(event) => updateAnnualQuantity(source.id, Number(event.target.value))}
                   />
-                  <div className="result-cell" title={sourceResult}>
+                  <div className="result-cell" title={sourceFormula}>
                     <strong>{formatKgCO2eAsTCO2e(rowEmission)}</strong>
                     <small>{scope === "scope2" ? "Market 기준" : "Scope 1"}</small>
                   </div>
@@ -404,14 +432,14 @@ function App() {
 
         <section className="service-panel">
           <div>
-            <p className="eyebrow">Operations</p>
-            <h2>라이선스 서버 연결</h2>
+            <p className="eyebrow">Protocol guide</p>
+            <h2>보고서 작성 체크 포인트</h2>
           </div>
           <dl>
-            <dt>License API</dt>
-            <dd>{LICENSE_VERIFY_URL}</dd>
-            <dt>Update API</dt>
-            <dd>{UPDATE_METADATA_URL}</dd>
+            <dt>라이선스 확인</dt>
+            <dd>`licenseKey`, `appVersion`, `deviceIdHash`만 전송</dd>
+            <dt>업데이트 확인</dt>
+            <dd>버전 메타데이터만 조회, 배출 데이터는 미전송</dd>
           </dl>
         </section>
 
