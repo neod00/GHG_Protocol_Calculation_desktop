@@ -28,6 +28,7 @@ import { buildLicenseGate } from "./licenseGate";
 import { LicenseVerificationResult, verifyLicense } from "./licenseClient";
 import { DesktopResultsDisplay } from "./components/DesktopResultsDisplay";
 import { DesktopScopeCalculators } from "./components/DesktopScopeCalculators";
+import { DesktopFactorManager } from "./components/DesktopFactorManager";
 import {
   createProjectEnvelope,
   DesktopProjectData,
@@ -203,8 +204,13 @@ function createDefaultProjectData(): DesktopProjectData {
         unit: "liters"
       }
     ],
+    factorSet: cloneScope12FactorSet(DEFAULT_SCOPE12_FACTORS),
     reportDraft: createDefaultReportDraft(reportingYear, companyName)
   };
+}
+
+function cloneScope12FactorSet(factorSet: Scope12FactorSet): Scope12FactorSet {
+  return JSON.parse(JSON.stringify(factorSet)) as Scope12FactorSet;
 }
 
 function createProjectId(): string {
@@ -271,6 +277,7 @@ function App() {
   const [facilities, setFacilities] = useState<Facility[]>(defaultFacilities);
   const [boundaryApproach, setBoundaryApproach] = useState<BoundaryApproach>("operational");
   const [sources, setSources] = useState<EmissionSource[]>(createDefaultProjectData().sources);
+  const [factorSet, setFactorSet] = useState<Scope12FactorSet>(() => cloneScope12FactorSet(DEFAULT_SCOPE12_FACTORS));
   const [openCategory, setOpenCategory] = useState<EmissionCategory | null>(EmissionCategory.StationaryCombustion);
   const [reportDraft, setReportDraft] = useState<DesktopReportDraft>(
     createDefaultReportDraft(new Date().getFullYear().toString(), "샘플 회사")
@@ -328,6 +335,7 @@ function App() {
           setFacilities(lastProject.data.facilities);
           setBoundaryApproach(lastProject.data.boundaryApproach);
           setSources(lastProject.data.sources);
+          setFactorSet(lastProject.data.factorSet || cloneScope12FactorSet(DEFAULT_SCOPE12_FACTORS));
           setReportDraft(
             lastProject.data.reportDraft ||
               createDefaultReportDraft(lastProject.data.reportingYear, lastProject.data.companyName)
@@ -391,6 +399,7 @@ function App() {
         boundaryApproach,
         facilities,
         sources,
+        factorSet,
         reportDraft
       }
     });
@@ -414,7 +423,7 @@ function App() {
     if (!hydratedRef.current) return;
     const timeout = window.setTimeout(() => void persistProject(), 500);
     return () => window.clearTimeout(timeout);
-  }, [projectId, projectName, companyName, reportingYear, boundaryApproach, facilities, sources, reportDraft]);
+  }, [projectId, projectName, companyName, reportingYear, boundaryApproach, facilities, sources, factorSet, reportDraft]);
 
   async function loadProjectFromList(nextProjectId: string) {
     setIsLoadingProject(true);
@@ -429,6 +438,7 @@ function App() {
       setFacilities(project.data.facilities);
       setBoundaryApproach(project.data.boundaryApproach);
       setSources(project.data.sources);
+      setFactorSet(project.data.factorSet || cloneScope12FactorSet(DEFAULT_SCOPE12_FACTORS));
       setReportDraft(project.data.reportDraft || createDefaultReportDraft(project.data.reportingYear, project.data.companyName));
       setLastSavedAt(project.updatedAt);
       setSaveState("saved");
@@ -464,6 +474,7 @@ function App() {
     setFacilities(data.facilities);
     setBoundaryApproach(data.boundaryApproach);
     setSources(data.sources);
+    setFactorSet(data.factorSet || cloneScope12FactorSet(DEFAULT_SCOPE12_FACTORS));
     setReportDraft(data.reportDraft || createDefaultReportDraft(data.reportingYear, data.companyName));
     setLastSavedAt(null);
     setSaveState("idle");
@@ -471,7 +482,7 @@ function App() {
   }
 
   function addSource(category: EmissionCategory) {
-    setSources((current) => [...current, createSource(category, DEFAULT_SCOPE12_FACTORS, facilities[0].id)]);
+    setSources((current) => [...current, createSource(category, factorSet, facilities[0].id)]);
   }
 
   function updateSource(sourceId: string, patch: Partial<EmissionSource>) {
@@ -479,7 +490,7 @@ function App() {
   }
 
   function updateSourceCategory(source: EmissionSource, category: EmissionCategory) {
-    const next = createSource(category, DEFAULT_SCOPE12_FACTORS, source.facilityId);
+    const next = createSource(category, factorSet, source.facilityId);
     updateSource(source.id, {
       category,
       fuelType: next.fuelType,
@@ -490,7 +501,7 @@ function App() {
   }
 
   function updateSourceFactor(source: EmissionSource, fuelType: string) {
-    const factor = getFactorsForCategory(source.category, DEFAULT_SCOPE12_FACTORS).find((item) => item.name === fuelType);
+    const factor = getFactorsForCategory(source.category, factorSet).find((item) => item.name === fuelType);
     updateSource(source.id, {
       fuelType,
       unit: factor && "units" in factor ? factor.units[0] : source.unit
@@ -588,6 +599,7 @@ function App() {
           boundaryApproach,
           facilities,
           sources,
+          factorSet,
           reportDraft
         }
       });
@@ -618,6 +630,7 @@ function App() {
       setFacilities(project.data.facilities);
       setBoundaryApproach(project.data.boundaryApproach);
       setSources(project.data.sources);
+      setFactorSet(project.data.factorSet || cloneScope12FactorSet(DEFAULT_SCOPE12_FACTORS));
       setReportDraft(project.data.reportDraft || createDefaultReportDraft(project.data.reportingYear, project.data.companyName));
       setLastSavedAt(project.updatedAt);
       setSaveState("saved");
@@ -672,13 +685,13 @@ function App() {
   const licenseGate = useMemo(() => buildLicenseGate(licenseResult), [licenseResult]);
   const statusText = getStatusText(licenseResult);
   const results = useMemo(
-    () => calculateScope12Inventory({ sources, facilities, boundaryApproach }),
-    [sources, facilities, boundaryApproach]
+    () => calculateScope12Inventory({ sources, facilities, boundaryApproach, factors: factorSet }),
+    [sources, facilities, boundaryApproach, factorSet]
   );
 
   const reportSourceResults = useMemo<EmissionSourceResult[]>(() => {
     return sources.map((source) => {
-      const calculation = calculateSourceEmissions(source, DEFAULT_SCOPE12_FACTORS);
+      const calculation = calculateSourceEmissions(source, factorSet);
       const scope = getScopeForCategory(source.category);
       const emissionsTCO2e =
         scope === "scope1" ? calculation.scope1 / 1000 : Math.max(calculation.scope2Location, calculation.scope2Market) / 1000;
@@ -689,7 +702,7 @@ function App() {
         formula: calculation.formula || ""
       };
     });
-  }, [sources]);
+  }, [sources, factorSet]);
 
   const reportChecklist = useMemo(() => {
     const boundary = {
@@ -972,6 +985,7 @@ function App() {
             sources={sources}
             facilities={facilities}
             boundaryApproach={boundaryApproach}
+            factorSet={factorSet}
             openCategory={openCategory}
             disabled={!licenseGate.canUseCoreFeatures}
             reportingYear={reportingYear}
@@ -987,6 +1001,13 @@ function App() {
 
 
         </section>
+
+        <DesktopFactorManager
+          factorSet={factorSet}
+          disabled={!licenseGate.canEditEmissionFactors}
+          onChange={setFactorSet}
+          onReset={() => setFactorSet(cloneScope12FactorSet(DEFAULT_SCOPE12_FACTORS))}
+        />
 
         <section className={`report-panel ${licenseGate.canGenerateReport ? "" : "locked-panel"}`}>
           <div className="results-header">

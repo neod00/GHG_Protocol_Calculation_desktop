@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { BoundaryApproach, EmissionSource, Facility } from "@ghg/core";
+import type { BoundaryApproach, EmissionSource, Facility, Scope12FactorSet } from "@ghg/core";
 import { APP_VERSION } from "./config";
 
 export interface DesktopProjectData {
@@ -8,6 +8,7 @@ export interface DesktopProjectData {
   boundaryApproach: BoundaryApproach;
   facilities: Facility[];
   sources: EmissionSource[];
+  factorSet?: Scope12FactorSet;
   reportDraft?: DesktopReportDraft;
 }
 

@@ -235,6 +235,8 @@ Progress:
 Progress:
 - Added `@ghg/core` Scope 1/2 regression tests for stationary combustion, mobile combustion, fugitive emissions, Scope 2 location-based electricity, Scope 2 market-based power mix, and equity boundary adjustment.
 - Added root `npm run test:core` script for repeatable core calculation verification.
+- Confirmed desktop Scope 1/2 factor constants match the web app source files by SHA-256 hash.
+- Added a desktop Scope 1/2 factor manager for viewing/editing local factors, adding custom factors, resetting defaults, and saving the factor set inside the local project data.
 
 ### Phase 3: Report Integration
 

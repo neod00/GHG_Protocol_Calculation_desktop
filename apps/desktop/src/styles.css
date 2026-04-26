@@ -305,7 +305,7 @@ textarea:focus {
   margin-top: 8px;
   margin-bottom: 0;
 }
-.results-panel, .calculator-panel {
+.results-panel, .calculator-panel, .factor-manager-panel {
   background: white;
   border: 1px solid #e1e6ef;
   border-radius: 10px;
@@ -404,6 +404,110 @@ textarea:focus {
   display: grid;
   grid-template-columns: 1fr 92px;
   gap: 8px;
+}
+.factor-manager-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.factor-tabs {
+  display: grid;
+  gap: 8px;
+}
+.factor-tabs button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: #f7fafc;
+  color: #172033;
+  border: 1px solid #dce4ee;
+  text-align: left;
+}
+.factor-tabs button.active {
+  background: #fff1e6;
+  border-color: #d87d2a;
+  color: #8a480f;
+}
+.factor-tabs small {
+  color: #6a778b;
+  font-weight: 800;
+}
+.factor-list-panel {
+  border: 1px solid #dce4ee;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.factor-list-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 16px;
+  background: #f8fafc;
+  border-bottom: 1px solid #dce4ee;
+}
+.factor-list-header h3 {
+  margin-bottom: 4px;
+}
+.factor-list-header p,
+.factor-item-heading p {
+  margin: 0;
+  color: #6a778b;
+  font-size: 13px;
+}
+.factor-list-header span {
+  white-space: nowrap;
+  color: #526176;
+  font-weight: 800;
+  font-size: 12px;
+}
+.factor-list {
+  display: grid;
+  gap: 12px;
+  max-height: 640px;
+  overflow: auto;
+  padding: 14px;
+}
+.factor-item-card {
+  border: 1px solid #e1e6ef;
+  border-radius: 8px;
+  padding: 14px;
+  background: white;
+}
+.factor-item-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.factor-item-heading strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.factor-custom-fields {
+  display: grid;
+  gap: 8px;
+}
+.factor-unit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.factor-units-row {
+  margin-bottom: 10px;
+}
+.factor-edit-row {
+  display: grid;
+  gap: 6px;
+}
+.factor-edit-row span {
+  color: #526176;
+  font-size: 12px;
+  font-weight: 800;
 }
 .result-cell {
   display: grid;
@@ -628,7 +732,7 @@ textarea:focus {
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { display: none; }
-  .license-panel, .privacy-grid, .project-grid, .service-panel, .feature-grid, .metric-grid, .mix-toggle-grid, .mix-detail-grid, .grid, .report-layout, .report-form-grid, .bundle-actions { grid-template-columns: 1fr; }
+  .license-panel, .privacy-grid, .project-grid, .service-panel, .feature-grid, .metric-grid, .mix-toggle-grid, .mix-detail-grid, .grid, .report-layout, .report-form-grid, .bundle-actions, .factor-manager-layout { grid-template-columns: 1fr; }
   .results-header { display: grid; }
   .detail-header { display: grid; }
 }

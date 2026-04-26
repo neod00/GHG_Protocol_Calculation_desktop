@@ -3,14 +3,14 @@ import {
   BoundaryApproach,
   calculateScope12Inventory,
   CO2eFactorFuel,
-  DEFAULT_SCOPE12_FACTORS,
   EmissionCategory,
   EmissionSource,
   Facility,
   formatKgCO2eAsTCO2e,
   getFactorsForCategory,
   getScopeForCategory,
-  Refrigerant
+  Refrigerant,
+  Scope12FactorSet
 } from "@ghg/core";
 import {
   IconBuilding,
@@ -36,6 +36,7 @@ interface DesktopEmissionSourceCardProps {
   sources: EmissionSource[];
   facilities: Facility[];
   boundaryApproach: BoundaryApproach;
+  factorSet: Scope12FactorSet;
   isOpen: boolean;
   disabled: boolean;
   reportingYear: string;
@@ -112,6 +113,7 @@ export function DesktopEmissionSourceCard({
   sources,
   facilities,
   boundaryApproach,
+  factorSet,
   isOpen,
   disabled,
   reportingYear,
@@ -125,10 +127,10 @@ export function DesktopEmissionSourceCard({
   onUpdatePowerMix
 }: DesktopEmissionSourceCardProps) {
   const scope = getScopeForCategory(category);
-  const factors = getFactorsForCategory(category, DEFAULT_SCOPE12_FACTORS);
+  const factors = getFactorsForCategory(category, factorSet);
   const categoryInventory = useMemo(
-    () => calculateScope12Inventory({ sources, facilities, boundaryApproach }),
-    [sources, facilities, boundaryApproach]
+    () => calculateScope12Inventory({ sources, facilities, boundaryApproach, factors: factorSet }),
+    [sources, facilities, boundaryApproach, factorSet]
   );
 
   const subtotal = scope === "scope2" ? categoryInventory.scope2MarketTotal : categoryInventory.scope1Total;
@@ -180,7 +182,7 @@ export function DesktopEmissionSourceCard({
               sources.map((source) => {
                 const selectedFactor = factors.find((item) => item.name === source.fuelType);
                 const unitOptions = getFactorUnitOptions(selectedFactor, source.unit);
-                const sourceInventory = calculateScope12Inventory({ sources: [source], facilities, boundaryApproach });
+                const sourceInventory = calculateScope12Inventory({ sources: [source], facilities, boundaryApproach, factors: factorSet });
                 const formula = sourceInventory.sourceFormulas[source.id];
                 const sourceResult = scope === "scope2" ? sourceInventory.scope2MarketTotal : sourceInventory.scope1Total;
 

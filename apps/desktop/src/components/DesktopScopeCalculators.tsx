@@ -1,10 +1,11 @@
-import { BoundaryApproach, EmissionCategory, EmissionSource, Facility } from "@ghg/core";
+import { BoundaryApproach, EmissionCategory, EmissionSource, Facility, Scope12FactorSet } from "@ghg/core";
 import { DesktopEmissionSourceCard } from "./DesktopEmissionSourceCard";
 
 interface DesktopScopeCalculatorsProps {
   sources: EmissionSource[];
   facilities: Facility[];
   boundaryApproach: BoundaryApproach;
+  factorSet: Scope12FactorSet;
   openCategory: EmissionCategory | null;
   disabled: boolean;
   reportingYear: string;
@@ -100,6 +101,7 @@ export function DesktopScopeCalculators(props: DesktopScopeCalculatorsProps) {
               sources={props.sources.filter((source) => source.category === category)}
               facilities={props.facilities}
               boundaryApproach={props.boundaryApproach}
+              factorSet={props.factorSet}
               isOpen={props.openCategory === category}
               disabled={props.disabled}
               reportingYear={props.reportingYear}
@@ -131,6 +133,7 @@ export function DesktopScopeCalculators(props: DesktopScopeCalculatorsProps) {
               sources={props.sources.filter((source) => source.category === category)}
               facilities={props.facilities}
               boundaryApproach={props.boundaryApproach}
+              factorSet={props.factorSet}
               isOpen={props.openCategory === category}
               disabled={props.disabled}
               reportingYear={props.reportingYear}
