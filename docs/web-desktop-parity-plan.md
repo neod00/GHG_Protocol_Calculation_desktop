@@ -140,6 +140,8 @@ Progress:
 - Added Excel-compatible Scope 1/2 CSV template export and current data export to the local Downloads folder.
 - Added local Downloads CSV listing and import flow that replaces the current Scope 1/2 source list after validation.
 - CSV import/export uses local Tauri file commands only; no activity data is sent to the license server.
+- Added native `.xlsx` template export, current data export, local Downloads listing, and import flow using the desktop app's local file commands.
+- Follow-up: `exceljs` leaves a moderate transitive `uuid` audit warning; do not apply `npm audit fix --force` without review because it downgrades ExcelJS. Consider code-splitting Excel utilities because the desktop frontend bundle increased.
 
 ### 7. Report Generation
 

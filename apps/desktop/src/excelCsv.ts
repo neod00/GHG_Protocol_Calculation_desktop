@@ -1,4 +1,5 @@
 import { BoundaryApproach, EmissionCategory, EmissionSource, Facility, Scope12InventoryResults } from "@ghg/core";
+import ExcelJS from "exceljs";
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -86,8 +87,8 @@ function rowsToCsv(rows: Array<Array<string | number>>): string {
   return `\uFEFF${rows.map((row) => row.map(escapeCsv).join(",")).join("\r\n")}`;
 }
 
-export function buildScope12TemplateCsv(facilities: Facility[]): string {
-  const rows: Array<Array<string | number>> = [
+function buildScope12TemplateRows(facilities: Facility[]): Array<Array<string | number>> {
+  return [
     ["Facility Name", "Category", "Description", "Fuel/Material Type", "Unit", ...months],
     [
       facilities[0]?.name || "Headquarters",
@@ -128,11 +129,9 @@ export function buildScope12TemplateCsv(facilities: Facility[]): string {
       100
     ]
   ];
-
-  return rowsToCsv(rows);
 }
 
-export function buildScope12DataCsv(data: CsvExportData): string {
+function buildScope12DataRows(data: CsvExportData): Array<Array<string | number>> {
   const rows: Array<Array<string | number>> = [
     ["GHG Scope 1/2 Export"],
     ["Company", data.companyName],
@@ -148,28 +147,26 @@ export function buildScope12DataCsv(data: CsvExportData): string {
     .filter((source) => scope12Categories.includes(source.category))
     .forEach((source) => rows.push(sourceToRow(source, data.facilities)));
 
-  return rowsToCsv(rows);
+  return rows;
 }
 
-export function parseScope12Csv(csvText: string, facilities: Facility[]): CsvImportResult {
-  const normalized = csvText.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  const lines = normalized.split("\n").filter((line) => line.trim().length > 0);
-  const headerIndex = lines.findIndex((line) => {
-    const cells = parseCsvLine(line).map((cell) => cell.trim().toLowerCase());
+function parseScope12Rows(rows: unknown[][], facilities: Facility[]): CsvImportResult {
+  const headerIndex = rows.findIndex((row) => {
+    const cells = row.map((cell) => String(cell ?? "").trim().toLowerCase());
     return cells[0] === "facility name" && cells[1] === "category";
   });
 
   if (headerIndex === -1) {
-    return { sources: [], errors: ["CSV 헤더를 찾지 못했습니다. 템플릿의 첫 열은 Facility Name, 두 번째 열은 Category여야 합니다."], warnings: [] };
+    return { sources: [], errors: ["입력 헤더를 찾지 못했습니다. 첫 열은 Facility Name, 두 번째 열은 Category여야 합니다."], warnings: [] };
   }
 
   const errors: string[] = [];
   const warnings: string[] = [];
   const sources: EmissionSource[] = [];
 
-  lines.slice(headerIndex + 1).forEach((line, rowOffset) => {
+  rows.slice(headerIndex + 1).forEach((rawRow, rowOffset) => {
     const rowNumber = headerIndex + rowOffset + 2;
-    const cells = parseCsvLine(line);
+    const cells = rawRow.map((cell) => String(cell ?? ""));
     const facilityName = cells[0]?.trim();
     const category = cells[1]?.trim() as EmissionCategory;
     const description = cells[2]?.trim() || `Imported source ${rowNumber}`;
@@ -211,4 +208,74 @@ export function parseScope12Csv(csvText: string, facilities: Facility[]): CsvImp
   });
 
   return { sources, errors, warnings };
+}
+
+function addRows(worksheet: ExcelJS.Worksheet, rows: Array<Array<string | number>>) {
+  rows.forEach((row) => worksheet.addRow(row));
+}
+
+function buildWorkbook(dataRows: Array<Array<string | number>>, facilities: Facility[]) {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "GHG Desktop";
+  workbook.created = new Date();
+
+  const dataSheet = workbook.addWorksheet("Scope 1-2 Data");
+  addRows(dataSheet, dataRows);
+  dataSheet.columns = [{ width: 24 }, { width: 30 }, { width: 30 }, { width: 24 }, { width: 12 }, ...months.map(() => ({ width: 12 }))];
+  dataSheet.getRow(1).font = { bold: true };
+
+  const facilitySheet = workbook.addWorksheet("Facilities");
+  addRows(facilitySheet, [["Facility Name", "Equity Share"], ...facilities.map((facility) => [facility.name, facility.equityShare])]);
+  facilitySheet.columns = [{ width: 28 }, { width: 14 }];
+  facilitySheet.getRow(1).font = { bold: true };
+
+  const categorySheet = workbook.addWorksheet("Categories");
+  addRows(categorySheet, [["Category"], ...scope12Categories.map((category) => [category])]);
+  categorySheet.columns = [{ width: 36 }];
+  categorySheet.getRow(1).font = { bold: true };
+
+  return workbook;
+}
+
+export function buildScope12TemplateCsv(facilities: Facility[]): string {
+  return rowsToCsv(buildScope12TemplateRows(facilities));
+}
+
+export function buildScope12DataCsv(data: CsvExportData): string {
+  return rowsToCsv(buildScope12DataRows(data));
+}
+
+export async function buildScope12TemplateXlsxBytes(facilities: Facility[]): Promise<number[]> {
+  const workbook = buildWorkbook(buildScope12TemplateRows(facilities), facilities);
+  const bytes = await workbook.xlsx.writeBuffer();
+  return Array.from(new Uint8Array(bytes));
+}
+
+export async function buildScope12DataXlsxBytes(data: CsvExportData): Promise<number[]> {
+  const workbook = buildWorkbook(buildScope12DataRows(data), data.facilities);
+  const bytes = await workbook.xlsx.writeBuffer();
+  return Array.from(new Uint8Array(bytes));
+}
+
+export async function parseScope12XlsxBytes(bytes: number[], facilities: Facility[]): Promise<CsvImportResult> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(new Uint8Array(bytes).buffer);
+  const worksheet = workbook.worksheets.find((sheet) => sheet.name.toLowerCase().includes("scope")) || workbook.worksheets[0];
+  if (!worksheet) {
+    return { sources: [], errors: ["Excel 파일에서 워크시트를 찾지 못했습니다."], warnings: [] };
+  }
+
+  const rows: unknown[][] = [];
+  worksheet.eachRow((row) => {
+    const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+    rows.push(values);
+  });
+
+  return parseScope12Rows(rows, facilities);
+}
+
+export function parseScope12Csv(csvText: string, facilities: Facility[]): CsvImportResult {
+  const normalized = csvText.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n").filter((line) => line.trim().length > 0);
+  return parseScope12Rows(lines.map(parseCsvLine), facilities);
 }

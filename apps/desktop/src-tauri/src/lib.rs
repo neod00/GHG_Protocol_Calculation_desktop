@@ -7,6 +7,7 @@ const DATABASE_FILE_NAME: &str = "ghg-desktop.sqlite3";
 const LAST_PROJECT_KEY: &str = "last_project_id";
 const PROJECT_BUNDLE_EXTENSION: &str = "ghgproj";
 const CSV_EXTENSION: &str = "csv";
+const XLSX_EXTENSION: &str = "xlsx";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -199,6 +200,63 @@ fn read_csv_file(app: AppHandle, file_name: String) -> Result<String, String> {
     let downloads_dir = downloads_dir(&app)?;
     let input_path = downloads_dir.join(sanitize_file_name(&file_name));
     fs::read_to_string(&input_path).map_err(|error| format!("failed to read csv file: {error}"))
+}
+
+#[tauri::command]
+fn save_binary_file(app: AppHandle, file_name: String, bytes: Vec<u8>) -> Result<String, String> {
+    let downloads_dir = downloads_dir(&app)?;
+    let output_path = downloads_dir.join(sanitize_file_name(&file_name));
+
+    fs::write(&output_path, bytes).map_err(|error| format!("failed to write binary file: {error}"))?;
+
+    output_path
+        .to_str()
+        .map(|value| value.to_string())
+        .ok_or_else(|| "failed to convert binary file path to string".to_string())
+}
+
+#[tauri::command]
+fn list_xlsx_files(app: AppHandle) -> Result<Vec<ProjectBundleFile>, String> {
+    let downloads_dir = downloads_dir(&app)?;
+    let mut files = Vec::new();
+
+    for entry in fs::read_dir(downloads_dir).map_err(|error| format!("failed to read downloads directory: {error}"))? {
+        let entry = entry.map_err(|error| format!("failed to read downloads entry: {error}"))?;
+        let path = entry.path();
+        let extension = path.extension().and_then(|value| value.to_str()).unwrap_or_default();
+
+        if extension.to_ascii_lowercase() != XLSX_EXTENSION {
+            continue;
+        }
+
+        let metadata = entry
+            .metadata()
+            .map_err(|error| format!("failed to read xlsx metadata: {error}"))?;
+        let modified = metadata
+            .modified()
+            .map_err(|error| format!("failed to read xlsx modified time: {error}"))?;
+        let updated_at: chrono::DateTime<chrono::Utc> = modified.into();
+
+        files.push(ProjectBundleFile {
+            file_name: path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or_default()
+                .to_string(),
+            file_path: path.to_string_lossy().to_string(),
+            updated_at: updated_at.to_rfc3339(),
+        });
+    }
+
+    files.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(files)
+}
+
+#[tauri::command]
+fn read_binary_file(app: AppHandle, file_name: String) -> Result<Vec<u8>, String> {
+    let downloads_dir = downloads_dir(&app)?;
+    let input_path = downloads_dir.join(sanitize_file_name(&file_name));
+    fs::read(&input_path).map_err(|error| format!("failed to read binary file: {error}"))
 }
 
 #[tauri::command]
@@ -565,6 +623,9 @@ pub fn run() {
             save_csv_file,
             list_csv_files,
             read_csv_file,
+            save_binary_file,
+            list_xlsx_files,
+            read_binary_file,
             save_generated_report,
             save_generated_pdf,
             export_project_bundle,

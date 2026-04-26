@@ -24,7 +24,14 @@ import {
   summarizeFacilityResults
 } from "@ghg/report";
 import { LICENSE_VERIFY_URL, UPDATE_METADATA_URL } from "./config";
-import { buildScope12DataCsv, buildScope12TemplateCsv, parseScope12Csv } from "./excelCsv";
+import {
+  buildScope12DataCsv,
+  buildScope12DataXlsxBytes,
+  buildScope12TemplateCsv,
+  buildScope12TemplateXlsxBytes,
+  parseScope12Csv,
+  parseScope12XlsxBytes
+} from "./excelCsv";
 import { buildLicenseGate } from "./licenseGate";
 import { LicenseVerificationResult, verifyLicense } from "./licenseClient";
 import { DesktopResultsDisplay } from "./components/DesktopResultsDisplay";
@@ -39,12 +46,15 @@ import {
   DesktopReportDraft,
   exportDesktopProjectBundle,
   importDesktopProjectBundle,
+  listDesktopXlsxFiles,
   listDesktopCsvFiles,
   listDesktopProjects,
   listDesktopProjectBundles,
   loadDesktopProject,
   loadLastDesktopProject,
+  readDesktopBinaryFile,
   readDesktopCsvFile,
+  saveDesktopBinaryFile,
   saveDesktopCsvFile,
   saveDesktopProject
 } from "./projectStorage";
@@ -290,6 +300,7 @@ function App() {
   const [projectList, setProjectList] = useState<DesktopProjectListItem[]>([]);
   const [projectBundles, setProjectBundles] = useState<DesktopProjectBundleFile[]>([]);
   const [csvFiles, setCsvFiles] = useState<DesktopLocalFile[]>([]);
+  const [xlsxFiles, setXlsxFiles] = useState<DesktopLocalFile[]>([]);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -300,6 +311,7 @@ function App() {
   const [isExportingBundle, setIsExportingBundle] = useState(false);
   const [isImportingBundle, setIsImportingBundle] = useState(false);
   const [selectedCsvFile, setSelectedCsvFile] = useState("");
+  const [selectedXlsxFile, setSelectedXlsxFile] = useState("");
   const [csvMessage, setCsvMessage] = useState<string | null>(null);
   const [csvError, setCsvError] = useState<string | null>(null);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
@@ -330,11 +342,12 @@ function App() {
 
     async function hydrateProject() {
       try {
-        const [lastProject, projects, bundles, csvs] = await Promise.all([
+        const [lastProject, projects, bundles, csvs, xlsxs] = await Promise.all([
           loadLastDesktopProject(),
           listDesktopProjects(),
           listDesktopProjectBundles(),
-          listDesktopCsvFiles()
+          listDesktopCsvFiles(),
+          listDesktopXlsxFiles()
         ]);
 
         if (cancelled) return;
@@ -363,6 +376,10 @@ function App() {
         setCsvFiles(csvs);
         if (csvs[0]) {
           setSelectedCsvFile(csvs[0].fileName);
+        }
+        setXlsxFiles(xlsxs);
+        if (xlsxs[0]) {
+          setSelectedXlsxFile(xlsxs[0].fileName);
         }
         hydratedRef.current = true;
       } catch (error) {
@@ -505,6 +522,17 @@ function App() {
     const files = await listDesktopCsvFiles();
     setCsvFiles(files);
     setSelectedCsvFile((current) => {
+      if (current && files.some((item) => item.fileName === current)) {
+        return current;
+      }
+      return files[0]?.fileName || "";
+    });
+  }
+
+  async function refreshXlsxFiles() {
+    const files = await listDesktopXlsxFiles();
+    setXlsxFiles(files);
+    setSelectedXlsxFile((current) => {
       if (current && files.some((item) => item.fileName === current)) {
         return current;
       }
@@ -729,6 +757,69 @@ function App() {
       setCsvMessage(`CSV 불러오기 완료: ${parsed.sources.length}개 배출원 반영${parsed.warnings.length ? `, 경고 ${parsed.warnings.length}건` : ""}`);
     } catch (error) {
       setCsvError(error instanceof Error ? error.message : "CSV 불러오기에 실패했습니다.");
+    } finally {
+      setIsImportingCsv(false);
+    }
+  }
+
+  async function handleExportXlsxTemplate() {
+    try {
+      setIsExportingCsv(true);
+      setCsvError(null);
+      setCsvMessage(null);
+      const outputPath = await saveDesktopBinaryFile("GHG_Scope12_Input_Template.xlsx", await buildScope12TemplateXlsxBytes(facilities));
+      setCsvMessage(`Excel 템플릿 저장 완료: ${outputPath}`);
+      await refreshXlsxFiles();
+    } catch (error) {
+      setCsvError(error instanceof Error ? error.message : "Excel 템플릿 저장에 실패했습니다.");
+    } finally {
+      setIsExportingCsv(false);
+    }
+  }
+
+  async function handleExportCurrentXlsx() {
+    try {
+      setIsExportingCsv(true);
+      setCsvError(null);
+      setCsvMessage(null);
+      const safeCompanyName = companyName.trim().replace(/[\\/:*?"<>|]/g, "_") || "GHG";
+      const bytes = await buildScope12DataXlsxBytes({
+        companyName,
+        reportingYear,
+        boundaryApproach,
+        facilities,
+        sources,
+        results
+      });
+      const outputPath = await saveDesktopBinaryFile(`${safeCompanyName}_${reportingYear}_scope12_data.xlsx`, bytes);
+      setCsvMessage(`Excel 내보내기 완료: ${outputPath}`);
+      await refreshXlsxFiles();
+    } catch (error) {
+      setCsvError(error instanceof Error ? error.message : "Excel 내보내기에 실패했습니다.");
+    } finally {
+      setIsExportingCsv(false);
+    }
+  }
+
+  async function handleImportXlsx() {
+    if (!selectedXlsxFile) return;
+
+    try {
+      setIsImportingCsv(true);
+      setCsvError(null);
+      setCsvMessage(null);
+      const bytes = await readDesktopBinaryFile(selectedXlsxFile);
+      const parsed = await parseScope12XlsxBytes(bytes, facilities);
+
+      if (parsed.errors.length > 0) {
+        setCsvError(parsed.errors.join("\n"));
+        return;
+      }
+
+      setSources(parsed.sources);
+      setCsvMessage(`Excel 불러오기 완료: ${parsed.sources.length}개 배출원 반영${parsed.warnings.length ? `, 경고 ${parsed.warnings.length}건` : ""}`);
+    } catch (error) {
+      setCsvError(error instanceof Error ? error.message : "Excel 불러오기에 실패했습니다.");
     } finally {
       setIsImportingCsv(false);
     }
@@ -971,6 +1062,29 @@ function App() {
               </p>
             </div>
             <div className="bundle-actions">
+              <button type="button" onClick={() => void handleExportXlsxTemplate()} disabled={isExportingCsv || isLoadingProject}>
+                Excel 템플릿 저장
+              </button>
+              <button type="button" className="ghost-button" onClick={() => void handleExportCurrentXlsx()} disabled={isExportingCsv || isLoadingProject}>
+                Excel 데이터 내보내기
+              </button>
+              <label>
+                Excel 파일 선택
+                <select value={selectedXlsxFile} onChange={(event) => setSelectedXlsxFile(event.target.value)} disabled={xlsxFiles.length === 0 || isImportingCsv}>
+                  {xlsxFiles.length === 0 ? (
+                    <option value="">XLSX 파일 없음</option>
+                  ) : (
+                    xlsxFiles.map((file) => (
+                      <option key={file.fileName} value={file.fileName}>
+                        {file.fileName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <button type="button" onClick={() => void handleImportXlsx()} disabled={!selectedXlsxFile || isImportingCsv || isLoadingProject}>
+                Excel 불러오기
+              </button>
               <button type="button" onClick={() => void handleExportCsvTemplate()} disabled={isExportingCsv || isLoadingProject}>
                 {isExportingCsv ? "CSV 저장 중" : "입력 템플릿 저장"}
               </button>
@@ -991,7 +1105,15 @@ function App() {
                   )}
                 </select>
               </label>
-              <button type="button" className="ghost-button" onClick={() => void refreshCsvFiles()} disabled={isImportingCsv}>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => {
+                  void refreshCsvFiles();
+                  void refreshXlsxFiles();
+                }}
+                disabled={isImportingCsv}
+              >
                 목록 새로고침
               </button>
               <button type="button" onClick={() => void handleImportCsv()} disabled={!selectedCsvFile || isImportingCsv || isLoadingProject}>

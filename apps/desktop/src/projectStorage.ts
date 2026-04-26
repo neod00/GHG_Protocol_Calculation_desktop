@@ -261,3 +261,34 @@ export async function readDesktopCsvFile(fileName: string): Promise<string> {
 
   throw new Error("브라우저 미리보기에서는 다운로드 폴더 CSV 불러오기를 지원하지 않습니다.");
 }
+
+export async function saveDesktopBinaryFile(fileName: string, bytes: number[]): Promise<string> {
+  if (isTauriAvailable()) {
+    return invoke<string>("save_binary_file", { fileName, bytes });
+  }
+
+  const blob = new Blob([new Uint8Array(bytes)]);
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  return `browser-download://${fileName}`;
+}
+
+export async function listDesktopXlsxFiles(): Promise<DesktopLocalFile[]> {
+  if (isTauriAvailable()) {
+    return invoke<DesktopLocalFile[]>("list_xlsx_files");
+  }
+
+  return [];
+}
+
+export async function readDesktopBinaryFile(fileName: string): Promise<number[]> {
+  if (isTauriAvailable()) {
+    return invoke<number[]>("read_binary_file", { fileName });
+  }
+
+  throw new Error("브라우저 미리보기에서는 다운로드 폴더 XLSX 불러오기를 지원하지 않습니다.");
+}
