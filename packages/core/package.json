@@ -8,6 +8,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": { "typecheck": "tsc --noEmit" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-regression-tests.mjs"
+  },
   "devDependencies": { "typescript": "^5.0.0" }
 }

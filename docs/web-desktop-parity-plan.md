@@ -232,6 +232,10 @@ Progress:
 3. Keep Scope 3 enum/types if useful, but hide standard Scope 3 calculation UI.
 4. Add regression tests comparing representative Scope 1/2 inputs against expected totals.
 
+Progress:
+- Added `@ghg/core` Scope 1/2 regression tests for stationary combustion, mobile combustion, fugitive emissions, Scope 2 location-based electricity, Scope 2 market-based power mix, and equity boundary adjustment.
+- Added root `npm run test:core` script for repeatable core calculation verification.
+
 ### Phase 3: Report Integration
 
 1. Connect web-style result dashboard to desktop Chapter 9 report generator.

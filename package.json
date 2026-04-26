@@ -9,6 +9,7 @@
     "dev:license-admin": "npm --workspace @ghg/license-admin run dev",
     "build:desktop": "npm --workspace @ghg/desktop run build",
     "build:license-admin": "npm --workspace @ghg/license-admin run build",
+    "test:core": "npm --workspace @ghg/core test",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "engines": { "node": ">=20" }
