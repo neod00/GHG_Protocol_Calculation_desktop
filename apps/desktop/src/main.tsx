@@ -24,6 +24,7 @@ import {
   summarizeFacilityResults
 } from "@ghg/report";
 import { LICENSE_VERIFY_URL, UPDATE_METADATA_URL } from "./config";
+import { buildScope12DataCsv, buildScope12TemplateCsv, parseScope12Csv } from "./excelCsv";
 import { buildLicenseGate } from "./licenseGate";
 import { LicenseVerificationResult, verifyLicense } from "./licenseClient";
 import { DesktopResultsDisplay } from "./components/DesktopResultsDisplay";
@@ -33,14 +34,18 @@ import {
   createProjectEnvelope,
   DesktopProjectData,
   DesktopProjectBundleFile,
+  DesktopLocalFile,
   DesktopProjectListItem,
   DesktopReportDraft,
   exportDesktopProjectBundle,
   importDesktopProjectBundle,
+  listDesktopCsvFiles,
   listDesktopProjects,
   listDesktopProjectBundles,
   loadDesktopProject,
   loadLastDesktopProject,
+  readDesktopCsvFile,
+  saveDesktopCsvFile,
   saveDesktopProject
 } from "./projectStorage";
 import "./styles.css";
@@ -284,6 +289,7 @@ function App() {
   );
   const [projectList, setProjectList] = useState<DesktopProjectListItem[]>([]);
   const [projectBundles, setProjectBundles] = useState<DesktopProjectBundleFile[]>([]);
+  const [csvFiles, setCsvFiles] = useState<DesktopLocalFile[]>([]);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -293,6 +299,11 @@ function App() {
   const [bundleError, setBundleError] = useState<string | null>(null);
   const [isExportingBundle, setIsExportingBundle] = useState(false);
   const [isImportingBundle, setIsImportingBundle] = useState(false);
+  const [selectedCsvFile, setSelectedCsvFile] = useState("");
+  const [csvMessage, setCsvMessage] = useState<string | null>(null);
+  const [csvError, setCsvError] = useState<string | null>(null);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
   const [isExportingReport, setIsExportingReport] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [exportedReportPath, setExportedReportPath] = useState<string | null>(null);
@@ -319,10 +330,11 @@ function App() {
 
     async function hydrateProject() {
       try {
-        const [lastProject, projects, bundles] = await Promise.all([
+        const [lastProject, projects, bundles, csvs] = await Promise.all([
           loadLastDesktopProject(),
           listDesktopProjects(),
-          listDesktopProjectBundles()
+          listDesktopProjectBundles(),
+          listDesktopCsvFiles()
         ]);
 
         if (cancelled) return;
@@ -347,6 +359,10 @@ function App() {
         setProjectBundles(bundles);
         if (bundles[0]) {
           setSelectedBundleFile(bundles[0].fileName);
+        }
+        setCsvFiles(csvs);
+        if (csvs[0]) {
+          setSelectedCsvFile(csvs[0].fileName);
         }
         hydratedRef.current = true;
       } catch (error) {
@@ -483,6 +499,17 @@ function App() {
 
   function addSource(category: EmissionCategory) {
     setSources((current) => [...current, createSource(category, factorSet, facilities[0].id)]);
+  }
+
+  async function refreshCsvFiles() {
+    const files = await listDesktopCsvFiles();
+    setCsvFiles(files);
+    setSelectedCsvFile((current) => {
+      if (current && files.some((item) => item.fileName === current)) {
+        return current;
+      }
+      return files[0]?.fileName || "";
+    });
   }
 
   function updateSource(sourceId: string, patch: Partial<EmissionSource>) {
@@ -641,6 +668,69 @@ function App() {
       setBundleError(error instanceof Error ? error.message : ".ghgproj 불러오기에 실패했습니다.");
     } finally {
       setIsImportingBundle(false);
+    }
+  }
+
+  async function handleExportCsvTemplate() {
+    try {
+      setIsExportingCsv(true);
+      setCsvError(null);
+      setCsvMessage(null);
+      const outputPath = await saveDesktopCsvFile("GHG_Scope12_Input_Template.csv", buildScope12TemplateCsv(facilities));
+      setCsvMessage(`CSV 템플릿 저장 완료: ${outputPath}`);
+      await refreshCsvFiles();
+    } catch (error) {
+      setCsvError(error instanceof Error ? error.message : "CSV 템플릿 저장에 실패했습니다.");
+    } finally {
+      setIsExportingCsv(false);
+    }
+  }
+
+  async function handleExportCurrentCsv() {
+    try {
+      setIsExportingCsv(true);
+      setCsvError(null);
+      setCsvMessage(null);
+      const safeCompanyName = companyName.trim().replace(/[\\/:*?"<>|]/g, "_") || "GHG";
+      const csv = buildScope12DataCsv({
+        companyName,
+        reportingYear,
+        boundaryApproach,
+        facilities,
+        sources,
+        results
+      });
+      const outputPath = await saveDesktopCsvFile(`${safeCompanyName}_${reportingYear}_scope12_data.csv`, csv);
+      setCsvMessage(`CSV 내보내기 완료: ${outputPath}`);
+      await refreshCsvFiles();
+    } catch (error) {
+      setCsvError(error instanceof Error ? error.message : "CSV 내보내기에 실패했습니다.");
+    } finally {
+      setIsExportingCsv(false);
+    }
+  }
+
+  async function handleImportCsv() {
+    if (!selectedCsvFile) return;
+
+    try {
+      setIsImportingCsv(true);
+      setCsvError(null);
+      setCsvMessage(null);
+      const csv = await readDesktopCsvFile(selectedCsvFile);
+      const parsed = parseScope12Csv(csv, facilities);
+
+      if (parsed.errors.length > 0) {
+        setCsvError(parsed.errors.join("\n"));
+        return;
+      }
+
+      setSources(parsed.sources);
+      setCsvMessage(`CSV 불러오기 완료: ${parsed.sources.length}개 배출원 반영${parsed.warnings.length ? `, 경고 ${parsed.warnings.length}건` : ""}`);
+    } catch (error) {
+      setCsvError(error instanceof Error ? error.message : "CSV 불러오기에 실패했습니다.");
+    } finally {
+      setIsImportingCsv(false);
     }
   }
 
@@ -870,6 +960,46 @@ function App() {
             </div>
             {bundleMessage && <p className="project-meta">{bundleMessage}</p>}
             {bundleError && <p className="error-copy">{bundleError}</p>}
+          </div>
+
+          <div className="bundle-panel">
+            <div>
+              <p className="eyebrow">Excel compatible CSV</p>
+              <h3>Scope 1/2 CSV 가져오기/내보내기</h3>
+              <p className="project-meta">
+                Excel에서 열 수 있는 CSV 파일을 Downloads 폴더에 저장합니다. CSV 불러오기는 현재 배출원 목록을 파일 내용으로 교체합니다.
+              </p>
+            </div>
+            <div className="bundle-actions">
+              <button type="button" onClick={() => void handleExportCsvTemplate()} disabled={isExportingCsv || isLoadingProject}>
+                {isExportingCsv ? "CSV 저장 중" : "입력 템플릿 저장"}
+              </button>
+              <button type="button" className="ghost-button" onClick={() => void handleExportCurrentCsv()} disabled={isExportingCsv || isLoadingProject}>
+                현재 데이터 내보내기
+              </button>
+              <label>
+                CSV 파일 선택
+                <select value={selectedCsvFile} onChange={(event) => setSelectedCsvFile(event.target.value)} disabled={csvFiles.length === 0 || isImportingCsv}>
+                  {csvFiles.length === 0 ? (
+                    <option value="">CSV 파일 없음</option>
+                  ) : (
+                    csvFiles.map((file) => (
+                      <option key={file.fileName} value={file.fileName}>
+                        {file.fileName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <button type="button" className="ghost-button" onClick={() => void refreshCsvFiles()} disabled={isImportingCsv}>
+                목록 새로고침
+              </button>
+              <button type="button" onClick={() => void handleImportCsv()} disabled={!selectedCsvFile || isImportingCsv || isLoadingProject}>
+                {isImportingCsv ? "불러오는 중" : "CSV 불러오기"}
+              </button>
+            </div>
+            {csvMessage && <p className="project-meta">{csvMessage}</p>}
+            {csvError && <p className="error-copy whitespace-pre-line">{csvError}</p>}
           </div>
         </section>
 

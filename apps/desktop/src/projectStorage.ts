@@ -58,6 +58,12 @@ export interface DesktopProjectBundleFile {
   updatedAt: string;
 }
 
+export interface DesktopLocalFile {
+  fileName: string;
+  filePath: string;
+  updatedAt: string;
+}
+
 const browserProjectStoreKey = "ghg-desktop-browser-projects";
 const browserLastProjectKey = "ghg-desktop-browser-last-project";
 const browserBundleStoreKey = "ghg-desktop-browser-bundles";
@@ -223,4 +229,35 @@ export async function importDesktopProjectBundle(fileName: string): Promise<Desk
 
   await saveDesktopProject(project);
   return project;
+}
+
+export async function saveDesktopCsvFile(fileName: string, content: string): Promise<string> {
+  if (isTauriAvailable()) {
+    return invoke<string>("save_csv_file", { fileName, content });
+  }
+
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  return `browser-download://${fileName}`;
+}
+
+export async function listDesktopCsvFiles(): Promise<DesktopLocalFile[]> {
+  if (isTauriAvailable()) {
+    return invoke<DesktopLocalFile[]>("list_csv_files");
+  }
+
+  return [];
+}
+
+export async function readDesktopCsvFile(fileName: string): Promise<string> {
+  if (isTauriAvailable()) {
+    return invoke<string>("read_csv_file", { fileName });
+  }
+
+  throw new Error("브라우저 미리보기에서는 다운로드 폴더 CSV 불러오기를 지원하지 않습니다.");
 }

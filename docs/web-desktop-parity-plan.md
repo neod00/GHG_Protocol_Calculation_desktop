@@ -136,6 +136,11 @@ Desktop target:
 - Save generated files via Tauri filesystem commands.
 - Ensure Excel import does not require cloud upload.
 
+Progress:
+- Added Excel-compatible Scope 1/2 CSV template export and current data export to the local Downloads folder.
+- Added local Downloads CSV listing and import flow that replaces the current Scope 1/2 source list after validation.
+- CSV import/export uses local Tauri file commands only; no activity data is sent to the license server.
+
 ### 7. Report Generation
 
 Web app:
