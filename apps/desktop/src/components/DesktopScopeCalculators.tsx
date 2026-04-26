@@ -13,7 +13,16 @@ interface DesktopScopeCalculatorsProps {
   onRemoveSource: (sourceId: string) => void;
   onUpdateSource: (sourceId: string, patch: Partial<EmissionSource>) => void;
   onFuelTypeChange: (source: EmissionSource, fuelType: string) => void;
+  onTogglePowerMixSection: (sourceId: string, mixKey: Scope2MixKey, enabled: boolean) => void;
+  onUpdatePowerMixAnnualQuantity: (sourceId: string, mixKey: Scope2MixKey, annualQuantity: number) => void;
+  onUpdatePowerMix: (
+    sourceId: string,
+    mixKey: Scope2MixKey,
+    updater: (current: Record<string, unknown> | undefined) => Record<string, unknown> | undefined
+  ) => void;
 }
+
+type Scope2MixKey = "ppa" | "rec" | "greenPremium" | "conventional";
 
 const scope1Categories = [
   EmissionCategory.StationaryCombustion,
@@ -99,6 +108,9 @@ export function DesktopScopeCalculators(props: DesktopScopeCalculatorsProps) {
               onRemoveSource={props.onRemoveSource}
               onUpdateSource={props.onUpdateSource}
               onFuelTypeChange={props.onFuelTypeChange}
+              onTogglePowerMixSection={props.onTogglePowerMixSection}
+              onUpdatePowerMixAnnualQuantity={props.onUpdatePowerMixAnnualQuantity}
+              onUpdatePowerMix={props.onUpdatePowerMix}
             />
           ))}
         </div>
@@ -127,6 +139,9 @@ export function DesktopScopeCalculators(props: DesktopScopeCalculatorsProps) {
               onRemoveSource={props.onRemoveSource}
               onUpdateSource={props.onUpdateSource}
               onFuelTypeChange={props.onFuelTypeChange}
+              onTogglePowerMixSection={props.onTogglePowerMixSection}
+              onUpdatePowerMixAnnualQuantity={props.onUpdatePowerMixAnnualQuantity}
+              onUpdatePowerMix={props.onUpdatePowerMix}
             />
           ))}
         </div>

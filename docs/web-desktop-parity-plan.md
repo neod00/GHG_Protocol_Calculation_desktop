@@ -222,7 +222,8 @@ Desktop target:
 Progress:
 - `DesktopResultsDisplay` has been added as the first web-style result dashboard.
 - `DesktopScopeCalculators` and `DesktopEmissionSourceCard` have been added as the first Scope 1/2 card-style input surface.
-- The old simplified source table is temporarily hidden in `apps/desktop/src/main.tsx` and should be removed after Scope 2 market-based contract controls are moved into the new card surface.
+- Scope 2 market-based controls for PPA, REC, green premium, and conventional power have been moved into the card-style input surface.
+- The old simplified source table has been removed from `apps/desktop/src/main.tsx`.
 
 ### Phase 2: Scope 1/2 Calculation Parity
 

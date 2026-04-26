@@ -44,9 +44,24 @@ interface DesktopEmissionSourceCardProps {
   onRemoveSource: (sourceId: string) => void;
   onUpdateSource: (sourceId: string, patch: Partial<EmissionSource>) => void;
   onFuelTypeChange: (source: EmissionSource, fuelType: string) => void;
+  onTogglePowerMixSection: (sourceId: string, mixKey: Scope2MixKey, enabled: boolean) => void;
+  onUpdatePowerMixAnnualQuantity: (sourceId: string, mixKey: Scope2MixKey, annualQuantity: number) => void;
+  onUpdatePowerMix: (
+    sourceId: string,
+    mixKey: Scope2MixKey,
+    updater: (current: Record<string, unknown> | undefined) => Record<string, unknown> | undefined
+  ) => void;
 }
 
 const monthLabels = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
+const scope2MixOptions = [
+  { key: "ppa", label: "PPA 전력" },
+  { key: "rec", label: "REC 전력" },
+  { key: "greenPremium", label: "녹색프리미엄" },
+  { key: "conventional", label: "일반전력" }
+] as const;
+
+type Scope2MixKey = (typeof scope2MixOptions)[number]["key"];
 
 function getCategoryIcon(category: EmissionCategory) {
   const className = "h-7 w-7";
@@ -78,6 +93,10 @@ function getAnnualQuantity(source: EmissionSource): number {
   return source.monthlyQuantities.reduce((sum, value) => sum + value, 0);
 }
 
+function getAnnualMixQuantity(values?: number[]): number {
+  return values?.reduce((sum, value) => sum + value, 0) || 0;
+}
+
 function updateMonthlyValue(source: EmissionSource, monthIndex: number, value: number): number[] {
   const next = Array.isArray(source.monthlyQuantities) && source.monthlyQuantities.length === 12
     ? [...source.monthlyQuantities]
@@ -100,7 +119,10 @@ export function DesktopEmissionSourceCard({
   onAddSource,
   onRemoveSource,
   onUpdateSource,
-  onFuelTypeChange
+  onFuelTypeChange,
+  onTogglePowerMixSection,
+  onUpdatePowerMixAnnualQuantity,
+  onUpdatePowerMix
 }: DesktopEmissionSourceCardProps) {
   const scope = getScopeForCategory(category);
   const factors = getFactorsForCategory(category, DEFAULT_SCOPE12_FACTORS);
@@ -265,6 +287,15 @@ export function DesktopEmissionSourceCard({
                         <strong className="mt-1 block text-lg text-slate-950">{formatKgCO2eAsTCO2e(sourceResult)}</strong>
                       </div>
                     </div>
+
+                    {scope === "scope2" && (
+                      <Scope2MarketControls
+                        source={source}
+                        onTogglePowerMixSection={onTogglePowerMixSection}
+                        onUpdatePowerMixAnnualQuantity={onUpdatePowerMixAnnualQuantity}
+                        onUpdatePowerMix={onUpdatePowerMix}
+                      />
+                    )}
                   </section>
                 );
               })
@@ -282,5 +313,344 @@ export function DesktopEmissionSourceCard({
         </div>
       )}
     </article>
+  );
+}
+
+function Scope2MarketControls({
+  source,
+  onTogglePowerMixSection,
+  onUpdatePowerMixAnnualQuantity,
+  onUpdatePowerMix
+}: {
+  source: EmissionSource;
+  onTogglePowerMixSection: (sourceId: string, mixKey: Scope2MixKey, enabled: boolean) => void;
+  onUpdatePowerMixAnnualQuantity: (sourceId: string, mixKey: Scope2MixKey, annualQuantity: number) => void;
+  onUpdatePowerMix: (
+    sourceId: string,
+    mixKey: Scope2MixKey,
+    updater: (current: Record<string, unknown> | undefined) => Record<string, unknown> | undefined
+  ) => void;
+}) {
+  return (
+    <div className="mt-4 rounded-2xl border border-cyan-100 bg-cyan-50/70 p-4">
+      <div className="mb-4">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-700">Scope 2 market-based</p>
+        <h4 className="mt-1 text-base font-bold text-slate-950">전력 계약수단 상세 입력</h4>
+        <p className="mt-1 text-sm leading-6 text-slate-500">
+          Location-based는 총 전력 사용량으로 산정하고, Market-based는 아래 계약수단별 전력량과 배출계수를 반영합니다.
+        </p>
+      </div>
+
+      <div className="grid gap-2 md:grid-cols-4">
+        {scope2MixOptions.map((option) => {
+          const enabled = Boolean(source.powerMix?.[option.key]);
+          return (
+            <label
+              key={option.key}
+              className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold ${
+                enabled ? "border-cyan-300 bg-white text-cyan-800" : "border-slate-200 bg-white/70 text-slate-500"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => onTogglePowerMixSection(source.id, option.key, event.target.checked)}
+              />
+              <span>{option.label}</span>
+            </label>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        {source.powerMix?.ppa && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h5 className="font-bold text-slate-950">PPA 전력</h5>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <NumberField
+                label="연간 사용량"
+                value={getAnnualMixQuantity(source.powerMix.ppa.quantity)}
+                onChange={(value) => onUpdatePowerMixAnnualQuantity(source.id, "ppa", value)}
+              />
+              <NumberField
+                label="배출계수"
+                value={source.powerMix.ppa.factor}
+                step="0.0001"
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "ppa", (current) => ({
+                    ...current,
+                    factor: value
+                  }))
+                }
+              />
+              <TextField
+                label="공급자명"
+                value={source.powerMix.ppa.supplierName || ""}
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "ppa", (current) => ({
+                    ...current,
+                    supplierName: value
+                  }))
+                }
+              />
+              <TextField
+                label="계약 ID"
+                value={source.powerMix.ppa.contractId || ""}
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "ppa", (current) => ({
+                    ...current,
+                    contractId: value
+                  }))
+                }
+              />
+            </div>
+          </section>
+        )}
+
+        {source.powerMix?.rec && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h5 className="font-bold text-slate-950">REC 전력</h5>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <NumberField
+                label="연간 사용량"
+                value={getAnnualMixQuantity(source.powerMix.rec.quantity)}
+                onChange={(value) => onUpdatePowerMixAnnualQuantity(source.id, "rec", value)}
+              />
+              <NumberField
+                label="배출계수"
+                value={source.powerMix.rec.factor}
+                step="0.0001"
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "rec", (current) => ({
+                    ...current,
+                    factor: value
+                  }))
+                }
+              />
+              <TextField
+                label="인증서 번호"
+                value={source.powerMix.rec.certificateId || ""}
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "rec", (current) => ({
+                    ...current,
+                    certificateId: value
+                  }))
+                }
+              />
+              <TextField
+                label="발급기관"
+                value={source.powerMix.rec.issuer || ""}
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "rec", (current) => ({
+                    ...current,
+                    issuer: value
+                  }))
+                }
+              />
+              <CheckboxField
+                label="GHG Protocol 요건 충족"
+                checked={source.powerMix.rec.meetsRequirements ?? true}
+                onChange={(checked) =>
+                  onUpdatePowerMix(source.id, "rec", (current) => ({
+                    ...current,
+                    meetsRequirements: checked
+                  }))
+                }
+              />
+            </div>
+          </section>
+        )}
+
+        {source.powerMix?.greenPremium && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h5 className="font-bold text-slate-950">녹색프리미엄</h5>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <NumberField
+                label="연간 사용량"
+                value={getAnnualMixQuantity(source.powerMix.greenPremium.quantity)}
+                onChange={(value) => onUpdatePowerMixAnnualQuantity(source.id, "greenPremium", value)}
+              />
+              <NumberField
+                label="기본 배출계수"
+                value={source.powerMix.greenPremium.factor}
+                step="0.0001"
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "greenPremium", (current) => ({
+                    ...current,
+                    factor: value
+                  }))
+                }
+              />
+              <TextField
+                label="공급자명"
+                value={source.powerMix.greenPremium.supplierName || ""}
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "greenPremium", (current) => ({
+                    ...current,
+                    supplierName: value
+                  }))
+                }
+              />
+              <TextField
+                label="계약 ID"
+                value={source.powerMix.greenPremium.contractId || ""}
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "greenPremium", (current) => ({
+                    ...current,
+                    contractId: value
+                  }))
+                }
+              />
+              <CheckboxField
+                label="재생에너지 계약수단으로 처리"
+                checked={source.powerMix.greenPremium.treatAsRenewable ?? false}
+                onChange={(checked) =>
+                  onUpdatePowerMix(source.id, "greenPremium", (current) => ({
+                    ...current,
+                    treatAsRenewable: checked
+                  }))
+                }
+              />
+              <CheckboxField
+                label="공급사 배출계수 사용"
+                checked={source.powerMix.greenPremium.supplierFactorProvided ?? false}
+                onChange={(checked) =>
+                  onUpdatePowerMix(source.id, "greenPremium", (current) => ({
+                    ...current,
+                    supplierFactorProvided: checked
+                  }))
+                }
+              />
+              <NumberField
+                label="공급사 배출계수"
+                value={source.powerMix.greenPremium.supplierFactor ?? 0}
+                step="0.0001"
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "greenPremium", (current) => ({
+                    ...current,
+                    supplierFactor: value
+                  }))
+                }
+              />
+            </div>
+          </section>
+        )}
+
+        {source.powerMix?.conventional && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <h5 className="font-bold text-slate-950">일반전력</h5>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <NumberField
+                label="연간 사용량"
+                value={getAnnualMixQuantity(source.powerMix.conventional.quantity)}
+                onChange={(value) => onUpdatePowerMixAnnualQuantity(source.id, "conventional", value)}
+              />
+              <NumberField
+                label="배출계수"
+                value={source.powerMix.conventional.factor}
+                step="0.0001"
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "conventional", (current) => ({
+                    ...current,
+                    factor: value
+                  }))
+                }
+              />
+              <label className="grid gap-1.5 text-sm font-semibold text-slate-600">
+                배출계수 기준
+                <select
+                  value={source.powerMix.conventional.source}
+                  onChange={(event) =>
+                    onUpdatePowerMix(source.id, "conventional", (current) => ({
+                      ...current,
+                      source: event.target.value
+                    }))
+                  }
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500"
+                >
+                  <option value="national-average">국가 평균</option>
+                  <option value="residual-mix">Residual mix</option>
+                  <option value="supplier-specific">공급자 제공</option>
+                </select>
+              </label>
+              <TextField
+                label="공급자명"
+                value={source.powerMix.conventional.supplierName || ""}
+                onChange={(value) =>
+                  onUpdatePowerMix(source.id, "conventional", (current) => ({
+                    ...current,
+                    supplierName: value
+                  }))
+                }
+              />
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  step,
+  onChange
+}: {
+  label: string;
+  value: number;
+  step?: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="grid gap-1.5 text-sm font-semibold text-slate-600">
+      {label}
+      <input
+        type="number"
+        min="0"
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500"
+      />
+    </label>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-1.5 text-sm font-semibold text-slate-600">
+      {label}
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 outline-none focus:border-cyan-500"
+      />
+    </label>
+  );
+}
+
+function CheckboxField({
+  label,
+  checked,
+  onChange
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 self-end rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span>{label}</span>
+    </label>
   );
 }
